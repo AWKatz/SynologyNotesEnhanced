@@ -1,0 +1,59 @@
+Source: <NAS> HAR (2026-06-21 16-44-50) — login → create note → format → encrypt.
+All POSTs to /notestation/webapi/entry.cgi, form-urlencoded. Secrets REDACTED.
+Verified: Note API = v3; object key = object_id; owning notebook = parent_id;
+optimistic concurrency via `ver` (sha1 rev) + check_conflict=true on writes.
+
+═══ Auth login (CSRF token source) — SYNO.API.Auth v7 ═══
+Request (decoded, secrets redacted):
+  api=SYNO.API.Auth&version=7&method=login
+  &session=webui&enable_syno_token=yes
+  &account=<USER>&passwd=<REDACTED>&logintype=local
+  &otp_code=&enable_device_token=no&rememberme=1&client=browser
+  &format omitted (web client); our app uses format=sid
+Response:
+  {"data":{"account":"<USER>","device_id":"<REDACTED>",
+    "sid":"<REDACTED>","synotoken":"<REDACTED>"},"success":true}
+  → enable_syno_token=yes makes the response include `synotoken`.
+    That value is the CSRF token: sent as `X-SYNO-TOKEN` header on POSTs and
+    `SynoToken=` query param on GET downloads. (Resolves the CSRF gap.)
+
+═══ Note.get — v3 ═══
+Request:  api=SYNO.NoteStation.Note&method=get&version=3&object_id="<id>"
+          (optional &ver="<sha1>" to fetch a specific revision)
+          ⚠ NO include_content/include_attachment — content is returned by default.
+Response: note object is DIRECTLY under data (NOT data.note):
+  {"data":{ object_id, parent_id, title, content, brief, tag:[], encrypt,
+            ctime, mtime, ver, link_id, attachment, thumb, ... }, "success":true}
+
+═══ Note.create — v3 ═══
+Request:  api=SYNO.NoteStation.Note&method=create&version=3
+          &commit_msg={"device":"desktop","listable":false}
+          &title="Untitled Note"&parent_id="<notebook id>"&encrypt=false
+          ⚠ NO content/tag on create — note is created empty, content applied via set.
+Response: created note object DIRECTLY under data (incl. fresh `ver`).
+
+═══ Note.set (this is "update") — v3 ═══
+Request:  api=SYNO.NoteStation.Note&method=set&version=3
+          &commit_msg={"device":"desktop"}
+          &object_id="<id>"&ver="<current sha1>"&check_conflict=true
+          + the changed field(s), e.g.:
+            &title="NEW NOTE"
+            &tag=["TAGADDED"]                         ← JSON ARRAY, not CSV
+            &content="<...html...>"&brief="<plain text preview>"
+          ⚠ `ver` is REQUIRED (optimistic lock); server rejects on mismatch.
+Response: PARTIAL object under data.data[0] (NOT data.note), carrying the NEW ver:
+  {"data":{"data":[{"object_id":"<id>","ver":"<new sha1>","mtime":...,
+            "link_id":...,"attachment":null,"thumb":null}]},"success":true}
+
+═══ Note.Encrypt — SYNO.NoteStation.Note.Encrypt v1 ═══
+Request:  api=...Note.Encrypt&method=create&version=1
+          &object_id="<id>"&password="<pw>"&duration=120
+Response: {"data":{"token":"<...>"},"success":true}
+
+═══ Attachment download auth — SYNO.API.Auth.Key v7 ═══
+Request:  api=SYNO.API.Auth.Key&method=grant&version=7
+          &allow_api="SYNO.NoteStation.Note"&allow_methods=["download"]
+Response: {"data":{"tid":"<token>"},"success":true}
+  → grants a scoped `tid` for embedding download URLs without exposing the sid.
+
+NOT in this capture: Note delete (deletion likely via set recycle=true — UNVERIFIED).
