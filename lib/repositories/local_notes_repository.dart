@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import '../core/crypto/note_crypto.dart';
 import '../models/note.dart';
 import '../models/notebook.dart';
 import '../models/shelf.dart';
@@ -218,6 +219,46 @@ class LocalNotesRepository implements NotesRepository {
     // Update index
     final index = await _readJsonList('notes_index.json');
     final idx = index.indexWhere((j) => (j['note_id'] ?? j['id']) == noteId);
+    if (idx != -1) {
+      final indexEntry = Map<String, dynamic>.from(noteData)..remove('content');
+      index[idx] = indexEntry;
+      await _writeJsonList('notes_index.json', index);
+    }
+
+    return updated;
+  }
+
+  @override
+  Future<Note> encryptNote({required Note note, required String password}) async {
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final plainBrief = note.content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
+    final updated = note.copyWith(
+      content: NoteCrypto.encrypt(note.content, password),
+      isEncrypted: true,
+      excerpt: plainBrief,
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(now * 1000),
+    );
+
+    final noteData = {
+      'note_id': updated.id,
+      'notebook_id': updated.notebookId,
+      'title': updated.title,
+      'content': updated.content,
+      'tag': updated.tags,
+      'ctime': updated.createdAt?.millisecondsSinceEpoch != null
+          ? updated.createdAt!.millisecondsSinceEpoch ~/ 1000
+          : now,
+      'mtime': now,
+      'is_starred': updated.isFavorite,
+      'is_encrypted': true,
+      'snippet': plainBrief,
+    };
+
+    final dir = await _notesDir();
+    File('${dir.path}/${note.id}.json').writeAsStringSync(jsonEncode(noteData));
+
+    final index = await _readJsonList('notes_index.json');
+    final idx = index.indexWhere((j) => (j['note_id'] ?? j['id']) == note.id);
     if (idx != -1) {
       final indexEntry = Map<String, dynamic>.from(noteData)..remove('content');
       index[idx] = indexEntry;

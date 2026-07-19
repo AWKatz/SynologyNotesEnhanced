@@ -1,0 +1,83 @@
+/* Matches the app's default light/dark surface colors closely enough to
+   avoid a visual seam; exact values are pushed in from Flutter at load via
+   window.setDarkMode(bool) since the WebView has no access to the app's
+   live theme otherwise. */
+:root {
+  --bg: #fcfcfc;
+  --fg: #1b1b1b;
+}
+body.dark {
+  --bg: #1e1e1e;
+  --fg: #e4e4e4;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#editor {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 16px 24px;
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  outline: none;
+}
+
+#editor table {
+  border-collapse: collapse;
+}
+#editor table td {
+  border: 1px solid currentColor;
+  opacity: 0.9;
+  padding: 4px 8px;
+  min-width: 24px;
+  min-height: 18px;
+}
+
+#editor hr {
+  border: none;
+  border-top: 1px solid currentColor;
+  opacity: 0.4;
+}
+
+/* The stock <input type="image"> checkbox points at a relative NAS path
+   that never resolves here — render our own checkbox glyph instead while
+   keeping the real element (and its class, which the save round-trip
+   depends on) in the DOM. */
+input.syno-notestation-editor-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid currentColor;
+  opacity: 0.7;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-right: 6px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  display: inline-block;
+  background: transparent;
+}
+input.syno-notestation-editor-checkbox.syno-notestation-editor-checkbox-checked {
+  background: #2c76dd;
+  border-color: #2c76dd;
+  opacity: 1;
+  position: relative;
+}
+input.syno-notestation-editor-checkbox.syno-notestation-editor-checkbox-checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
+}

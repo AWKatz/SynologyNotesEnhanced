@@ -37,9 +37,10 @@ formats) are still in progress — see the API mapping below for current status.
 Because Note Station has no official API, everything here is reconstructed from observed
 behavior. The [`docs/api/`](docs/api/) folder is the working specification:
 
-- **[docs/api/README.md](docs/api/README.md)** — the master status table of every
-  `SYNO.NoteStation.*` API, its methods/params, and whether each is **verified by live
-  capture** or **inferred**.
+- **[docs/api/NoteStation API documentation.md](<docs/api/NoteStation API documentation.md>)**
+  — the complete API reference: every `SYNO.NoteStation.*` method/param/response, the wire
+  conventions, verified object schemas, the client-side note-encryption scheme, and the
+  `.nsx` export format, each tagged **verified by live capture** or **inferred**.
 - **[docs/api/captures/](docs/api/captures/)** — annotated (secrets-redacted) request/
   response captures from the stock web client that serve as ground truth.
 - **[docs/api/CAPTURE-CHECKLIST.md](docs/api/CAPTURE-CHECKLIST.md)** — what to click in

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'providers/app_mode_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
@@ -54,12 +55,17 @@ Widget _slideFromLeft(
 class _PanelPage extends StatelessWidget {
   final Widget child;
   final bool dismissible;
+  final double maxWidth;
 
-  const _PanelPage({required this.child, this.dismissible = false});
+  const _PanelPage({
+    required this.child,
+    this.dismissible = false,
+    this.maxWidth = 380.0,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final width = min(380.0, MediaQuery.sizeOf(context).width * 0.88);
+    final width = min(maxWidth, MediaQuery.sizeOf(context).width * 0.92);
 
     return Stack(
       children: [
@@ -128,7 +134,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           opaque: false,
           barrierColor: Colors.black54,
           barrierDismissible: false,
-          child: const _PanelPage(dismissible: true, child: SettingsScreen()),
+          child: const _PanelPage(
+            dismissible: true,
+            maxWidth: 480,
+            child: SettingsScreen(),
+          ),
           transitionsBuilder: _slideFromLeft,
         ),
       ),
@@ -142,13 +152,15 @@ class SynologyNoteApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final themeMode = ref.watch(themeModeProvider);
+    final accent = ref.watch(accentColorProvider) ?? AppTheme.defaultSeed;
 
     return MaterialApp.router(
       title: 'Synology Notes Enhanced',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.dark,
+      theme: AppTheme.light(accent),
+      darkTheme: AppTheme.dark(accent),
+      themeMode: themeMode,
       routerConfig: router,
     );
   }

@@ -1,5 +1,0 @@
-Request:
-api=SYNO.NoteStation.Note.Encrypt&method=create&version=1&object_id=%221026_QF644RE9V50IT7EO6BU21NUFRG%22&password=%2212345%22&duration=120
-
-Response: 
-{"data":{"token":"8ar745526vaj1781482385"},"success":true}

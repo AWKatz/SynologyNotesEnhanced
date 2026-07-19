@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
@@ -62,6 +63,28 @@ class NoteCrypto {
 
     if (!plain.startsWith(_magic)) throw const WrongPasswordException();
     return plain.substring(_magic.length);
+  }
+
+  /// Encrypts [html] with [password], producing the same "Salted__" envelope
+  /// (AES-256-CBC, MD5 EVP_BytesToKey, PKCS#7) the stock client reads back —
+  /// verified end-to-end against docs/api/captures/Note.Encrypt.write.txt
+  /// (the resulting blob round-tripped through the real NAS's Note.get).
+  static String encrypt(String html, String password) {
+    final salt = Uint8List.fromList(
+        List.generate(8, (_) => Random.secure().nextInt(256)));
+    final (key, iv) = _deriveKeyIv(utf8.encode(password), salt);
+
+    final encrypter = enc.Encrypter(
+      enc.AES(enc.Key(key), mode: enc.AESMode.cbc), // PKCS7 padding (default)
+    );
+    final ciphertext = encrypter.encryptBytes(
+      utf8.encode('$_magic$html'),
+      iv: enc.IV(iv),
+    );
+
+    final raw = Uint8List.fromList(
+        [...utf8.encode(_openSslHeader), ...salt, ...ciphertext.bytes]);
+    return base64.encode(raw);
   }
 
   /// OpenSSL EVP_BytesToKey (MD5, 1 iteration): derives a 32-byte key + 16-byte

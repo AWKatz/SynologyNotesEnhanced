@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../models/synology_session.dart';
 
@@ -32,37 +33,62 @@ class SessionPersistenceService {
   static const _keyPassword = 'nas_password';
   static const _keyRememberMe = 'nas_remember_me';
 
+  // Writes are sequential, not `Future.wait`-parallel: the Windows backend
+  // (DPAPI/file-based) races when hit with concurrent writes and silently
+  // drops some of them (observed: 7 concurrent writes in saveSession left
+  // `host`/`sid` unset while `mode` "won" the race) — one write at a time
+  // avoids that entirely.
+  static Future<void> _writeAll(Map<String, String> entries) async {
+    for (final entry in entries.entries) {
+      await _storage.write(key: entry.key, value: entry.value);
+    }
+  }
+
+  static Future<void> _deleteKeys(List<String> keys) async {
+    for (final key in keys) {
+      await _storage.delete(key: key);
+    }
+  }
+
   // Called after a successful login. Always saves connection details + SID.
   static Future<void> saveSession(SynologySession session) async {
-    await Future.wait([
-      _storage.write(key: _keyHost, value: session.host),
-      _storage.write(key: _keyPort, value: session.port.toString()),
-      _storage.write(key: _keyHttps, value: session.useHttps.toString()),
-      _storage.write(key: _keyUsername, value: session.username),
-      _storage.write(key: _keySid, value: session.sid),
-      _storage.write(key: _keySynoToken, value: session.synoToken ?? ''),
-      _storage.write(key: _keyMode, value: 'nas'),
-    ]);
+    try {
+      await _writeAll({
+        _keyHost: session.host,
+        _keyPort: session.port.toString(),
+        _keyHttps: session.useHttps.toString(),
+        _keyUsername: session.username,
+        _keySid: session.sid,
+        _keySynoToken: session.synoToken ?? '',
+        _keyMode: 'nas',
+      });
+      // Read the SID straight back to confirm the write actually landed —
+      // catches silent write failures rather than trusting `write()` didn't
+      // throw.
+      final readBack = await _storage.read(key: _keySid);
+      debugPrint('[session] saveSession: wrote sid for ${session.username}@'
+          '${session.host}, read-back ${readBack == session.sid ? 'OK' : 'MISMATCH ("$readBack")'}');
+    } catch (e, st) {
+      debugPrint('[session] saveSession threw: $e\n$st');
+      rethrow;
+    }
   }
 
   // Additionally saves the password so the login form can be pre-filled.
   static Future<void> saveCredentials(SavedCredentials creds) async {
-    await Future.wait([
-      _storage.write(key: _keyHost, value: creds.host),
-      _storage.write(key: _keyPort, value: creds.port.toString()),
-      _storage.write(key: _keyHttps, value: creds.useHttps.toString()),
-      _storage.write(key: _keyUsername, value: creds.username),
-      _storage.write(key: _keyPassword, value: creds.password),
-      _storage.write(key: _keyRememberMe, value: 'true'),
-    ]);
+    await _writeAll({
+      _keyHost: creds.host,
+      _keyPort: creds.port.toString(),
+      _keyHttps: creds.useHttps.toString(),
+      _keyUsername: creds.username,
+      _keyPassword: creds.password,
+      _keyRememberMe: 'true',
+    });
   }
 
   // Clears the saved password and remember-me flag without touching the SID.
   static Future<void> clearSavedCredentials() async {
-    await Future.wait([
-      _storage.delete(key: _keyPassword),
-      _storage.delete(key: _keyRememberMe),
-    ]);
+    await _deleteKeys([_keyPassword, _keyRememberMe]);
   }
 
   static Future<SavedCredentials?> restoreCredentials() async {
@@ -81,9 +107,15 @@ class SessionPersistenceService {
 
   static Future<SynologySession?> restoreSession() async {
     final host = await _storage.read(key: _keyHost);
-    if (host == null || host.isEmpty) return null;
+    if (host == null || host.isEmpty) {
+      debugPrint('[session] restoreSession: no host in storage — nothing saved');
+      return null;
+    }
     final sid = await _storage.read(key: _keySid) ?? '';
-    if (sid.isEmpty) return null;
+    if (sid.isEmpty) {
+      debugPrint('[session] restoreSession: host="$host" present but sid missing/empty');
+      return null;
+    }
     final token = await _storage.read(key: _keySynoToken);
     return SynologySession(
       host: host,
@@ -98,10 +130,7 @@ class SessionPersistenceService {
   // On logout: only wipe the SID. Connection details + remembered password stay
   // so the login form can be pre-filled on the next sign-in.
   static Future<void> clearSession() async {
-    await Future.wait([
-      _storage.delete(key: _keySid),
-      _storage.delete(key: _keySynoToken),
-    ]);
+    await _deleteKeys([_keySid, _keySynoToken]);
   }
 
   static Future<void> saveMode(String mode) async {

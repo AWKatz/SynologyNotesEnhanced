@@ -76,4 +76,15 @@ class NasNotesRepository implements NotesRepository {
   @override
   Future<List<Note>> search({required String keyword}) =>
       _service.search(keyword: keyword);
+
+  @override
+  Future<Note> encryptNote({required Note note, required String password}) async {
+    final encrypted =
+        await _service.encryptNoteAsCopy(plainNote: note, password: password);
+    // The stock client leaves the plaintext original behind (see
+    // Note.Encrypt.write.txt) — trash it so encrypting never leaves readable
+    // plaintext sitting next to the new encrypted copy.
+    await _service.deleteNote(note.id);
+    return encrypted;
+  }
 }

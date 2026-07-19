@@ -1,3 +1,5 @@
+import '../core/crypto/note_crypto.dart';
+
 class Note {
   final String id;
   final String notebookId;
@@ -28,7 +30,11 @@ class Note {
     this.ver,
   });
 
+  /// Never derived from `content` or `excerpt` for encrypted notes — those may
+  /// be the raw ciphertext blob or (if the server ever fails to scrub it) a
+  /// stale plaintext `brief`. Never show either without the password.
   String get displayExcerpt {
+    if (isEncrypted || NoteCrypto.isEncrypted(content)) return '';
     if (excerpt != null && excerpt!.isNotEmpty) return excerpt!;
     final plain = content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
     return plain.length > 120 ? '${plain.substring(0, 120)}…' : plain;

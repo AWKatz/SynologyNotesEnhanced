@@ -28,4 +28,11 @@ abstract class NotesRepository {
   Future<List<Tag>> listTags();
   Future<Tag> createTag(String name);
   Future<List<Note>> search({required String keyword});
+
+  /// Encrypts a currently-plain [note] with [password]. NAS mode: creates a
+  /// new note carrying the encrypted content and trashes the plaintext
+  /// original (see NasNotesRepository — mirrors the verified Note.copy wire
+  /// format, but never leaves the stock client's plaintext-duplicate behind).
+  /// Local mode: rewrites the note in place.
+  Future<Note> encryptNote({required Note note, required String password});
 }

@@ -15,12 +15,16 @@ void main() async {
   try {
     restoredSession = await SessionPersistenceService.restoreSession();
     final modeStr = await SessionPersistenceService.restoreMode();
+    debugPrint(
+        '[startup] restoreSession=${restoredSession == null ? 'null' : '${restoredSession.username}@${restoredSession.host} sid=${restoredSession.sid.isEmpty ? '(empty)' : '(present)'}'} restoreMode=$modeStr');
     if (restoredSession != null) {
       restoredMode = AppMode.nas;
     } else if (modeStr == 'local') {
       restoredMode = AppMode.local;
     }
-  } catch (_) {}
+  } catch (e, st) {
+    debugPrint('[startup] session restore threw: $e\n$st');
+  }
 
   runApp(
     ProviderScope(

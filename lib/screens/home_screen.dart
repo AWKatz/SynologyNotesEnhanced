@@ -44,7 +44,22 @@ class _ThreePanelLayout extends ConsumerWidget {
                           .read(sidebarCollapsedProvider.notifier)
                           .state = false,
                     )
-                  : const AppSidebar(),
+                  // The AnimatedContainer's width animates through
+                  // intermediate values (40→220) on expand, and AppSidebar's
+                  // contents aren't designed to lay out narrower than 220. A
+                  // plain SizedBox(width: 220) isn't enough here — its "fixed"
+                  // width still gets clamped down to whatever (narrower) max
+                  // width the parent currently allows. OverflowBox instead
+                  // forces the child to lay out at exactly 220 regardless of
+                  // the incoming constraints, letting it visually overflow
+                  // its box — which ClipRect then crops during the
+                  // transition, instead of forcing a relayout that overflows.
+                  : const OverflowBox(
+                      minWidth: 220,
+                      maxWidth: 220,
+                      alignment: Alignment.centerLeft,
+                      child: AppSidebar(),
+                    ),
             ),
           ),
           const VerticalDivider(width: 1),

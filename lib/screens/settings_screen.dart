@@ -12,6 +12,8 @@ import '../providers/shelves_provider.dart';
 import '../providers/tags_provider.dart';
 import '../providers/notes_provider.dart';
 import '../providers/stats_provider.dart';
+import '../providers/theme_provider.dart';
+import '../theme/app_theme.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -34,21 +36,24 @@ class SettingsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          _SectionHeader('Appearance'),
+          const _AppearanceSection(),
+          const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('Storage Mode'),
           _ModeSelector(currentMode: mode),
-          const Divider(indent: 16, endIndent: 16),
+          const Divider(height: 32, indent: 20, endIndent: 20),
           if (mode == AppMode.nas || mode == null) ...[
             _SectionHeader('Synology NAS'),
             _NasConnectionTile(session: session),
-            const Divider(indent: 16, endIndent: 16),
+            const Divider(height: 32, indent: 20, endIndent: 20),
           ],
           _SectionHeader('Library'),
           const _StatsGrid(),
           const _ResyncButton(),
-          const Divider(indent: 16, endIndent: 16),
+          const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('Import / Export'),
           const _NsxImportExport(),
-          const Divider(indent: 16, endIndent: 16),
+          const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('About'),
           const _AboutTile(),
         ],
@@ -66,13 +71,15 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
       child: Text(
         title.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              letterSpacing: 1.2,
-            ),
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.1,
+        ),
       ),
     );
   }
@@ -130,6 +137,104 @@ class _ModeSelector extends ConsumerWidget {
   }
 }
 
+// ── Appearance ──────────────────────────────────────────────────────────────────
+
+class _AppearanceSection extends ConsumerWidget {
+  const _AppearanceSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final mode = ref.watch(themeModeProvider);
+    final accent = ref.watch(accentColorProvider) ?? AppTheme.defaultSeed;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<ThemeMode>(
+              style: SegmentedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                textStyle: const TextStyle(fontSize: 14),
+              ),
+              segments: const [
+                ButtonSegment(
+                  value: ThemeMode.system,
+                  icon: Icon(Icons.brightness_auto_rounded),
+                  label: Text('System'),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.light,
+                  icon: Icon(Icons.light_mode_rounded),
+                  label: Text('Light'),
+                ),
+                ButtonSegment(
+                  value: ThemeMode.dark,
+                  icon: Icon(Icons.dark_mode_rounded),
+                  label: Text('Dark'),
+                ),
+              ],
+              selected: {mode},
+              onSelectionChanged: (selection) =>
+                  ref.read(themeModeProvider.notifier).setMode(selection.first),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+          child: Text('Accent color',
+              style: TextStyle(
+                color: cs.onSurfaceVariant,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              )),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Wrap(
+            spacing: 14,
+            runSpacing: 14,
+            children: AppTheme.accentPalette.map((color) {
+              final selected = color.toARGB32() == accent.toARGB32();
+              // Preview the actual resulting `primary` color for this mode,
+              // not the raw seed — Material's tonal algorithm (and the
+              // grey-specific monochrome path) can shift it noticeably, so
+              // the swatch should show what buttons/tags will really look
+              // like rather than risk looking like a different color once
+              // picked.
+              final preview =
+                  AppTheme.previewColorFor(color, Theme.of(context).brightness);
+              final checkColor =
+                  preview.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+              return InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: () => ref.read(accentColorProvider.notifier).setColor(color),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: preview,
+                    shape: BoxShape.circle,
+                    border: selected
+                        ? Border.all(color: cs.onSurface, width: 2.5)
+                        : null,
+                  ),
+                  child: selected
+                      ? Icon(Icons.check_rounded, color: checkColor, size: 22)
+                      : null,
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ── NAS connection tile ────────────────────────────────────────────────────────
 
 class _NasConnectionTile extends ConsumerWidget {
@@ -144,7 +249,11 @@ class _NasConnectionTile extends ConsumerWidget {
       return ListTile(
         leading: Icon(Icons.check_circle_rounded, color: cs.primary),
         title: Text('Connected as ${session.username}'),
-        subtitle: Text(session.baseUrl),
+        subtitle: Text(
+          session.baseUrl,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         trailing: TextButton(
           onPressed: () async {
             await ref.read(sessionProvider.notifier).logout();
@@ -193,7 +302,7 @@ class _StatsGrid extends ConsumerWidget {
         : ref.watch(tagsCountProvider);
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       child: Column(
         children: [
           Row(
@@ -203,7 +312,7 @@ class _StatsGrid extends ConsumerWidget {
               _StatCell(label: 'To-Do Lists', value: todos, isStub: true),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Row(
             children: [
               _StatCell(label: 'Notebooks', value: userNotebooks),
@@ -235,27 +344,29 @@ class _StatCell extends StatelessWidget {
 
     return Expanded(
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        margin: const EdgeInsets.symmetric(horizontal: 5),
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+        constraints: const BoxConstraints(minHeight: 88),
         decoration: BoxDecoration(
           color: cs.surfaceContainerLow,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.6)),
         ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             isStub
                 ? Text(
                     '–',
-                    style: tt.titleLarge?.copyWith(
+                    style: tt.headlineSmall?.copyWith(
                       color: cs.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   )
                 : value == null
                     ? SizedBox(
-                        width: 16,
-                        height: 16,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           color: cs.primary,
@@ -263,17 +374,21 @@ class _StatCell extends StatelessWidget {
                       )
                     : Text(
                         '$value',
-                        style: tt.titleLarge?.copyWith(
+                        style: tt.headlineSmall?.copyWith(
                           color: cs.onSurface,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               label,
-              style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurfaceVariant,
+              ),
               textAlign: TextAlign.center,
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ],
@@ -294,9 +409,10 @@ class _ResyncButton extends ConsumerWidget {
     final isNas = mode == AppMode.nas;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
       child: SizedBox(
         width: double.infinity,
+        height: 48,
         child: OutlinedButton.icon(
           icon: const Icon(Icons.sync_rounded),
           label: Text(isNas ? 'Re-sync with NAS' : 'Refresh Local Data'),

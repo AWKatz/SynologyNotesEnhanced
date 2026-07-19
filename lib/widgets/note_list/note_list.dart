@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../models/note.dart';
+import '../../models/notebook.dart';
+import '../../providers/app_mode_provider.dart'
+    show repositoryProvider, appModeProvider, AppMode;
+import '../../providers/note_color_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/notebooks_provider.dart';
 import '../../providers/tags_provider.dart';
+import '../common/app_toast.dart';
 
 class NoteList extends ConsumerWidget {
   const NoteList({super.key});
@@ -119,7 +124,7 @@ class _NoteListHeader extends ConsumerWidget {
               const SizedBox(width: 4),
               IconButton(
                 icon: const Icon(Icons.add_rounded),
-                onPressed: () {},
+                onPressed: () => _createNote(context, ref),
                 tooltip: 'New Note',
                 iconSize: 20,
                 color: cs.primary,
@@ -168,6 +173,9 @@ class _NoteListItem extends ConsumerWidget {
     final cs = Theme.of(context).colorScheme;
     final tagNames = ref.watch(tagNameMapProvider);
     final dateStr = _formatDate(note.updatedAt ?? note.createdAt);
+    final noteColor = ref.watch(noteColorsProvider)[note.id];
+    final noteColorLabel =
+        noteColor == null ? null : ref.watch(colorLabelsProvider)[noteColor.toARGB32()];
 
     final resolvedTags = note.tags
         .map((id) => tagNames[id] ?? id)
@@ -182,10 +190,13 @@ class _NoteListItem extends ConsumerWidget {
         onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: isSelected
+          decoration: isSelected || noteColor != null
               ? BoxDecoration(
                   border: Border(
-                    left: BorderSide(color: cs.primary, width: 2),
+                    left: BorderSide(
+                      color: isSelected ? cs.primary : noteColor!,
+                      width: isSelected ? 2 : 3,
+                    ),
                   ),
                 )
               : null,
@@ -229,6 +240,30 @@ class _NoteListItem extends ConsumerWidget {
                     dateStr,
                     style:
                         TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      noteColor != null
+                          ? Icons.label_rounded
+                          : Icons.label_outline_rounded,
+                      size: 15,
+                    ),
+                    tooltip: noteColorLabel ?? 'Set Color',
+                    color: noteColor ?? cs.onSurfaceVariant,
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.only(left: 6),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => showColorPicker(context, ref,
+                        id: note.id, colorsProvider: noteColorsProvider),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, size: 15),
+                    tooltip: 'Delete Note',
+                    color: cs.onSurfaceVariant,
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.only(left: 6),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _confirmDeleteNote(context, ref, note),
                   ),
                 ],
               ),
@@ -298,12 +333,12 @@ class _TagChip extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
+class _EmptyState extends ConsumerWidget {
   final bool hasNotebook;
   const _EmptyState({required this.hasNotebook});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
     return Center(
       child: Column(
@@ -317,12 +352,132 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           TextButton.icon(
-            onPressed: () {},
+            onPressed: () => _createNote(context, ref),
             icon: const Icon(Icons.add_rounded, size: 16),
             label: const Text('New Note'),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Delete note (local mode only — NAS delete semantics aren't verified yet) ──
+
+void _confirmDeleteNote(BuildContext context, WidgetRef ref, Note note) {
+  final isLocal = ref.read(appModeProvider) == AppMode.local;
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Delete Note?'),
+      content: Text(
+        isLocal
+            ? 'Delete "${note.title}"? This cannot be undone.'
+            : 'Move "${note.title}" to trash?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.tonal(
+          onPressed: () async {
+            Navigator.of(dialogContext).pop();
+            final repo = ref.read(repositoryProvider);
+            if (repo == null) return;
+            try {
+              await repo.deleteNote(note.id);
+              if (ref.read(selectedNoteIdProvider) == note.id) {
+                ref.read(selectedNoteIdProvider.notifier).state = null;
+              }
+              ref.invalidate(notesProvider);
+              ref.invalidate(notebooksProvider);
+              if (context.mounted) {
+                AppToast.success(
+                  context,
+                  isLocal ? 'Note deleted' : 'Moved to trash',
+                );
+              }
+            } catch (_) {
+              if (context.mounted) {
+                AppToast.error(context, 'Could not delete the note.');
+              }
+            }
+          },
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+}
+
+// ── New note creation ────────────────────────────────────────────────────────
+
+Future<void> _createNote(BuildContext context, WidgetRef ref) async {
+  final repo = ref.read(repositoryProvider);
+  if (repo == null) return;
+
+  var notebookId = ref.read(selectedNotebookIdProvider);
+  if (notebookId == null) {
+    final notebooks = ref.read(notebooksProvider).valueOrNull ?? [];
+    if (notebooks.isEmpty) {
+      AppToast.error(context, 'Create a notebook first.');
+      return;
+    }
+    notebookId = await showDialog<String>(
+      context: context,
+      builder: (context) => _PickNotebookDialog(notebooks: notebooks),
+    );
+    if (notebookId == null) return; // cancelled
+    if (!context.mounted) return;
+  }
+
+  // Note creation is a real round-trip in NAS mode (and noticeably slow even
+  // locally) — show progress rather than leaving the "+" tap looking inert.
+  final progress = AppToast.progress(context, 'Creating note…');
+
+  try {
+    final note = await repo.createNote(notebookId: notebookId, title: 'Untitled Note');
+    ref.invalidate(notesProvider);
+    ref.invalidate(notebooksProvider);
+    ref.read(selectedNotebookIdProvider.notifier).state = notebookId;
+    ref.read(selectedNoteIdProvider.notifier).state = note.id;
+    progress.close();
+  } catch (_) {
+    progress.close();
+    if (context.mounted) AppToast.error(context, 'Could not create the note.');
+  }
+}
+
+class _PickNotebookDialog extends StatelessWidget {
+  final List<Notebook> notebooks;
+  const _PickNotebookDialog({required this.notebooks});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New note in…'),
+      content: SizedBox(
+        width: 320,
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: notebooks.length,
+          itemBuilder: (context, i) {
+            final nb = notebooks[i];
+            return ListTile(
+              leading: const Icon(Icons.folder_rounded),
+              title: Text(nb.name),
+              onTap: () => Navigator.of(context).pop(nb.id),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+      ],
     );
   }
 }

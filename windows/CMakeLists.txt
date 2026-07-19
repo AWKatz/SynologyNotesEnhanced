@@ -32,6 +32,14 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
 
+# flutter_inappwebview_windows (and possibly other native plugins) still use
+# the pre-standard <experimental/coroutine> header. Recent MSVC toolsets turn
+# that into a hard compile error (C2338) rather than a warning; this is the
+# flag the compiler's own error message names as the workaround. Global here
+# (not just a local env var) so it survives across machines/rebuilds without
+# everyone needing to remember to set $env:CL themselves.
+add_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by

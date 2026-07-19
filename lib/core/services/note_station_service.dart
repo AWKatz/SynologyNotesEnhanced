@@ -1,4 +1,5 @@
 import '../api/synology_api_client.dart';
+import '../crypto/note_crypto.dart';
 import '../../models/note.dart';
 import '../../models/notebook.dart';
 import '../../models/shelf.dart';
@@ -236,15 +237,55 @@ class NoteStationService {
   static String _briefFromHtml(String html) =>
       html.replaceAll(RegExp(r'<[^>]+>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  /// Moves a note to trash. VERIFIED (Note.Ghost.txt): this is a soft delete —
+  /// `method=delete` with `recycle=true` just flips the note's `recycle` flag;
+  /// `object_id` is a JSON array (batch-capable) even for one note. There is no
+  /// verified restore/purge yet, so this only ever trashes, never destroys.
   Future<void> deleteNote(String noteId) async {
-    // INFERRED: not in any capture. v3 + object_id follow the verified Note
-    // convention, but the real client may instead recycle via set recycle=true.
     await _client.call(
       api: 'SYNO.NoteStation.Note',
       version: 3,
       method: 'delete',
-      params: {'object_id': noteId},
+      params: {'object_id': [noteId], 'recycle': true},
     );
+  }
+
+  /// Encrypts a currently-plain note with [password]. VERIFIED
+  /// (Note.Encrypt.write.txt): the stock client encrypts client-side (same
+  /// AES-256-CBC/OpenSSL scheme as decrypt) and submits via `Note.copy`, which
+  /// creates a NEW note object carrying the encrypted blob — it is NOT an
+  /// in-place `Note.set`. The original plaintext note is left behind by the
+  /// stock client; callers here are expected to trash it afterward (see
+  /// `NasNotesRepository.encryptNote`) so a "successfully encrypted" note
+  /// never leaves readable plaintext sitting next to it.
+  Future<Note> encryptNoteAsCopy({
+    required Note plainNote,
+    required String password,
+  }) async {
+    final encryptedContent = NoteCrypto.encrypt(plainNote.content, password);
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Note',
+      version: 3,
+      method: 'copy',
+      params: {
+        'commit_msg': {'device': 'desktop', 'listable': true},
+        'object_id': plainNote.id,
+        if (plainNote.ver != null) 'ver': plainNote.ver,
+        'content': encryptedContent,
+        'brief': _briefFromHtml(plainNote.content),
+        'tag': plainNote.tags,
+        'title': plainNote.title,
+        'source_url': '',
+        'latitude': 0,
+        'longitude': 0,
+        'location': '',
+        'parent_id': plainNote.notebookId,
+        'encrypt': true,
+        'recycle': false,
+        'new_password': password,
+      },
+    );
+    return Note.fromJson(data);
   }
 
   // ── Tags ────────────────────────────────────────────────────────────────────

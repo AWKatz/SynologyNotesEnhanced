@@ -23,6 +23,8 @@ dependencies:
   flutter_widget_from_html_core: ^0.16.0 # render NoteStation note HTML
   archive: ^3.6.1 # read/write .nsx (ZIP) export bundles
   file_picker: ^8.1.2 # open/save dialogs for .nsx import/export
+  flutter_inappwebview: ^6.1.5 # rich-text note editor (contenteditable HTML page)
+  html: ^0.15.4 # parse note content to check it's in the safe rich-editable subset
 
 dev_dependencies:
   flutter_test:
@@ -34,6 +36,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
+    - assets/editor/
 
 flutter_launcher_icons:
   image_path: "assets/icons/app_icon.png"
