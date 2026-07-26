@@ -27,20 +27,26 @@ class AppSidebar extends ConsumerWidget {
     final displayName = session?.username ??
         (mode == AppMode.local ? 'Offline Mode' : 'Not Connected');
 
+    final filter = ref.watch(noteFilterProvider);
+
     return Container(
       color: cs.surfaceContainerLow,
       child: Column(
         children: [
-          _SidebarHeader(displayName: displayName, isOffline: mode == AppMode.local),
+          _SidebarHeader(
+              displayName: displayName, isOffline: mode == AppMode.local),
           Divider(color: cs.outlineVariant, height: 1),
-          _AllNotesItem(isSelected: selectedId == null),
+          const SizedBox(height: 4),
+          _AllNotesItem(isSelected: selectedId == null && filter == null),
+          _FavoritesItem(isSelected: filter == NoteFilter.favorites),
+          _LockedNotesItem(isSelected: filter == NoteFilter.locked),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
-                    'NOTEBOOKS',
+                    'FOLDERS',
                     style: TextStyle(
                       color: cs.onSurfaceVariant,
                       fontSize: 11,
@@ -105,19 +111,29 @@ class _SidebarHeader extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 4, 12),
       child: Row(
         children: [
-          Container(
+          // TEMPORARY: placeholder app mark while the real design gets
+          // finalized — swaps out the mode-colored (online/offline)
+          // customizable icon below rather than deleting it, so restoring
+          // it later is a one-line revert.
+          Image.asset(
+            'assets/icons/app_icon.png',
             width: 32,
             height: 32,
-            decoration: BoxDecoration(
-              color: isOffline ? cs.secondaryContainer : cs.primary,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              isOffline ? Icons.phone_android_rounded : Icons.note_alt_rounded,
-              color: isOffline ? cs.onSecondaryContainer : cs.onPrimary,
-              size: 18,
-            ),
+            fit: BoxFit.contain,
           ),
+          // Container(
+          //   width: 32,
+          //   height: 32,
+          //   decoration: BoxDecoration(
+          //     color: isOffline ? cs.secondaryContainer : cs.primary,
+          //     borderRadius: BorderRadius.circular(8),
+          //   ),
+          //   child: Icon(
+          //     isOffline ? Icons.phone_android_rounded : Icons.note_alt_rounded,
+          //     color: isOffline ? cs.onSecondaryContainer : cs.onPrimary,
+          //     size: 18,
+          //   ),
+          // ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -196,11 +212,7 @@ class _SidebarFooter extends ConsumerWidget {
             _FooterIconButton(
               icon: Icons.sync_rounded,
               tooltip: 'Sync',
-              onPressed: () {
-                ref.invalidate(notebooksProvider);
-                ref.invalidate(shelvesProvider);
-                ref.invalidate(notesProvider);
-              },
+              onPressed: () => syncAfterMutation(ref),
               color: cs.onSurfaceVariant,
             ),
             const SizedBox(width: 4),
@@ -276,6 +288,61 @@ class _AllNotesItem extends ConsumerWidget {
       onTap: () {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(noteFilterProvider.notifier).state = null;
+      },
+    );
+  }
+}
+
+// ── Favorites / Locked notes (virtual, client-side filter views) ────────────
+
+class _FavoritesItem extends ConsumerWidget {
+  final bool isSelected;
+  const _FavoritesItem({required this.isSelected});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref
+            .watch(allNotesGlobalProvider)
+            .valueOrNull
+            ?.where((n) => n.isFavorite)
+            .length ??
+        0;
+    return _SidebarTile(
+      icon: Icons.star_rounded,
+      label: 'Favorites',
+      count: count,
+      isSelected: isSelected,
+      onTap: () {
+        ref.read(selectedNotebookIdProvider.notifier).state = null;
+        ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(noteFilterProvider.notifier).state = NoteFilter.favorites;
+      },
+    );
+  }
+}
+
+class _LockedNotesItem extends ConsumerWidget {
+  final bool isSelected;
+  const _LockedNotesItem({required this.isSelected});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref
+            .watch(allNotesGlobalProvider)
+            .valueOrNull
+            ?.where((n) => n.isEncrypted)
+            .length ??
+        0;
+    return _SidebarTile(
+      icon: Icons.lock_rounded,
+      label: 'Locked Notes',
+      count: count,
+      isSelected: isSelected,
+      onTap: () {
+        ref.read(selectedNotebookIdProvider.notifier).state = null;
+        ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(noteFilterProvider.notifier).state = NoteFilter.locked;
       },
     );
   }
@@ -324,7 +391,8 @@ class _ShelfHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
       child: Row(
         children: [
-          Icon(Icons.library_books_rounded, size: 13, color: cs.onSurfaceVariant),
+          Icon(Icons.library_books_rounded,
+              size: 13, color: cs.onSurfaceVariant),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
@@ -366,7 +434,8 @@ class _NotebookItem extends ConsumerWidget {
         ref.read(selectedNoteIdProvider.notifier).state = null;
       },
       trailing: PopupMenuButton<String>(
-        icon: Icon(Icons.more_vert_rounded, size: 16, color: cs.onSurfaceVariant),
+        icon:
+            Icon(Icons.more_vert_rounded, size: 16, color: cs.onSurfaceVariant),
         tooltip: 'Notebook actions',
         constraints: const BoxConstraints(),
         padding: EdgeInsets.zero,
@@ -414,49 +483,42 @@ class _SidebarTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-      child: Material(
-        color: isSelected ? cs.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
-            child: Row(
-              children: [
-                Icon(
-                  icon,
-                  size: 16,
-                  color: iconColor ??
-                      (isSelected ? cs.onSecondaryContainer : cs.onSurfaceVariant),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: TextStyle(
-                      color: isSelected ? cs.onSecondaryContainer : cs.onSurface,
-                      fontSize: 13,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                    overflow: TextOverflow.ellipsis,
+    // Flat rectangle, not a rounded "pill" — matches Samsung Notes' plain
+    // grey-highlight row in its manage-folders/nav-rail screens rather than
+    // Material's default tonal selection chip.
+    return Material(
+      color: isSelected ? cs.surfaceContainerHigh : Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: iconColor ??
+                    (isSelected ? cs.onSurface : cs.onSurfaceVariant),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                if (count > 0)
-                  Text(
-                    '$count',
-                    style: TextStyle(
-                      color: isSelected
-                          ? cs.onSecondaryContainer.withValues(alpha: 0.7)
-                          : cs.onSurfaceVariant,
-                      fontSize: 11,
-                    ),
-                  ),
-                if (trailing != null) trailing!,
-              ],
-            ),
+              ),
+              if (count > 0)
+                Text(
+                  '$count',
+                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11),
+                ),
+              if (trailing != null) trailing!,
+            ],
           ),
         ),
       ),
@@ -480,8 +542,7 @@ void _showNewNotebookDialog(BuildContext context, WidgetRef ref) {
         final repo = ref.read(repositoryProvider);
         if (repo == null) return;
         final nb = await repo.createNotebook(title: name, shelfId: shelfId);
-        ref.invalidate(notebooksProvider);
-        ref.invalidate(shelvesProvider);
+        syncAfterMutation(ref);
         ref.read(selectedNotebookIdProvider.notifier).state = nb.id;
         if (callerContext.mounted) {
           AppToast.success(callerContext, 'Created "${nb.name}"');
@@ -505,7 +566,7 @@ void _showRenameNotebookDialog(
         final repo = ref.read(repositoryProvider);
         if (repo == null) return;
         await repo.renameNotebook(notebookId: notebook.id, title: name);
-        ref.invalidate(notebooksProvider);
+        syncAfterMutation(ref);
         if (callerContext.mounted) {
           AppToast.success(callerContext, 'Renamed to "$name"');
         }
@@ -542,12 +603,15 @@ void _showDeleteNotebookDialog(
                 ref.read(selectedNotebookIdProvider.notifier).state = null;
                 ref.read(selectedNoteIdProvider.notifier).state = null;
               }
-              ref.invalidate(notebooksProvider);
-              ref.invalidate(notesProvider);
+              syncAfterMutation(ref);
               if (context.mounted) {
                 AppToast.success(context, 'Deleted "${notebook.name}"');
               }
-            } catch (_) {
+            } catch (e) {
+              // Swallowing the real exception here made a prior real bug
+              // (delete actually succeeding server-side, but the client
+              // still showing an error toast) undiagnosable — surface it.
+              debugPrint('Delete notebook failed: $e');
               if (context.mounted) {
                 AppToast.error(context, 'Could not delete the notebook.');
               }
@@ -600,7 +664,10 @@ class _NotebookFormDialogState extends ConsumerState<_NotebookFormDialog> {
     try {
       await widget.onConfirm(name, _shelfId);
       if (mounted) Navigator.of(context).pop();
-    } catch (_) {
+    } catch (e) {
+      // See the delete-notebook catch above — same "swallowed the real
+      // exception" problem, same fix.
+      debugPrint('Notebook create/rename failed: $e');
       if (mounted) {
         AppToast.error(context, 'Something went wrong. Please try again.');
       }

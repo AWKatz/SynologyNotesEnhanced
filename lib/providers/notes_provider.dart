@@ -2,13 +2,41 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/note.dart';
 import 'app_mode_provider.dart';
 import 'notebooks_provider.dart';
+import 'shelves_provider.dart';
 import 'tags_provider.dart';
+
+/// Virtual, client-side-only nav views (Favorites / Locked notes) — not
+/// backed by a dedicated repository query, so selecting one simply widens
+/// the fetch to all notes and [filteredNotesProvider] narrows it further.
+enum NoteFilter { favorites, locked }
+
+final noteFilterProvider = StateProvider<NoteFilter?>((ref) => null);
+
+enum NoteSortField { updated, title }
+
+/// (field, ascending). Pinned notes always sort first regardless of this —
+/// see [filteredNotesProvider] — this only controls the secondary key.
+final noteSortProvider = StateProvider<(NoteSortField, bool)>(
+    (ref) => (NoteSortField.updated, false));
 
 final notesProvider = FutureProvider<List<Note>>((ref) async {
   final repo = ref.watch(repositoryProvider);
   if (repo == null) return [];
-  final notebookId = ref.watch(selectedNotebookIdProvider);
+  // A filter view (Favorites/Locked) is global, like the reference
+  // screenshots' nav items — ignore whatever notebook happens to be selected.
+  final notebookId = ref.watch(noteFilterProvider) == null
+      ? ref.watch(selectedNotebookIdProvider)
+      : null;
   return repo.listNotes(notebookId: notebookId);
+});
+
+/// Always all notes, regardless of the currently selected notebook/filter —
+/// used for sidebar badge counts (All Notes / Favorites / Locked), which
+/// must stay accurate even while a specific notebook is being browsed.
+final allNotesGlobalProvider = FutureProvider<List<Note>>((ref) async {
+  final repo = ref.watch(repositoryProvider);
+  if (repo == null) return [];
+  return repo.listNotes(notebookId: null);
 });
 
 final selectedNoteIdProvider = StateProvider<String?>((ref) => null);
@@ -28,7 +56,8 @@ final searchQueryProvider = StateProvider<String>((ref) => '');
 /// page. Debounced so fast typing doesn't fire a request per keystroke;
 /// `ref.mounted` after the delay drops the result if a newer query already
 /// superseded this one.
-final searchResultsProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
+final searchResultsProvider =
+    FutureProvider.autoDispose<List<Note>>((ref) async {
   final query = ref.watch(searchQueryProvider).trim();
   if (query.isEmpty) return const [];
   final repo = ref.watch(repositoryProvider);
@@ -65,21 +94,54 @@ final filteredNotesProvider = Provider<List<Note>>((ref) {
     return tags == null ? n : n.copyWith(tags: tags);
   }).toList();
 
-  final filtered = notes;
+  final noteFilter = ref.watch(noteFilterProvider);
+  var filtered = notes;
+  if (noteFilter == NoteFilter.favorites) {
+    filtered = filtered.where((n) => n.isFavorite).toList();
+  } else if (noteFilter == NoteFilter.locked) {
+    filtered = filtered.where((n) => n.isEncrypted).toList();
+  }
+
+  final (sortField, ascending) = ref.watch(noteSortProvider);
   filtered.sort((a, b) {
     if (a.isPinned && !b.isPinned) return -1;
     if (!a.isPinned && b.isPinned) return 1;
+
+    if (sortField == NoteSortField.title) {
+      final cmp = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      return ascending ? cmp : -cmp;
+    }
+
+    // Date: notes with an unknown date always sort last, in either direction.
     final at = a.updatedAt ?? a.createdAt;
     final bt = b.updatedAt ?? b.createdAt;
     if (at == null && bt == null) return 0;
     if (at == null) return 1;
     if (bt == null) return -1;
-    return bt.compareTo(at);
+    final cmp = at.compareTo(bt); // ascending = oldest first
+    return ascending ? cmp : -cmp; // default (descending) = newest first
   });
 
   return filtered;
 });
 
 final allNotesCountProvider = Provider<int>((ref) {
-  return ref.watch(notesProvider).valueOrNull?.length ?? 0;
+  return ref.watch(allNotesGlobalProvider).valueOrNull?.length ?? 0;
 });
+
+/// Refreshes every provider a mutating action (save, create/delete note or
+/// notebook, favorite/tag/encrypt) could have made stale — the same full set
+/// the sidebar's manual sync button triggers. Call this after any such
+/// action succeeds instead of hand-picking which providers to invalidate:
+/// picking wrong (or forgetting one, e.g. favoriting a note not updating the
+/// sidebar's Favorites count because only `notesProvider` was invalidated,
+/// not `allNotesGlobalProvider`) is exactly why the app used to look "out of
+/// sync" until the user tapped Sync themselves.
+void syncAfterMutation(WidgetRef ref) {
+  ref.invalidate(notebooksProvider);
+  ref.invalidate(shelvesProvider);
+  ref.invalidate(notesProvider);
+  ref.invalidate(allNotesGlobalProvider);
+  ref.invalidate(tagsProvider);
+  ref.invalidate(selectedNoteProvider);
+}

@@ -29,25 +29,43 @@ The goal is twofold:
 - **Offline / local mode** — work with local notes without a NAS connection.
 - **Session persistence** — credentials stored via the platform secure store.
 
-Some capabilities (attachment upload, version history, sharing, more export/import
-formats) are still in progress — see the API mapping below for current status.
+Some capabilities (version history, sharing, more export/import formats) are still in
+progress — see the API coverage table below for current status.
 
-## Reverse-engineering the API
+## NoteStation API coverage
 
-Because Note Station has no official API, everything here is reconstructed from observed
-behavior. The [`docs/api/`](docs/api/) folder is the working specification:
+Synology has never published a spec for `SYNO.NoteStation.*`, so this project also
+reverse-engineers it from real client/server traffic as it goes. Working today (implemented
+and wired into the app, not just verified by capture):
 
-- **[docs/api/NoteStation API documentation.md](<docs/api/NoteStation API documentation.md>)**
-  — the complete API reference: every `SYNO.NoteStation.*` method/param/response, the wire
-  conventions, verified object schemas, the client-side note-encryption scheme, and the
-  `.nsx` export format, each tagged **verified by live capture** or **inferred**.
-- **[docs/api/captures/](docs/api/captures/)** — annotated (secrets-redacted) request/
-  response captures from the stock web client that serve as ground truth.
-- **[docs/api/CAPTURE-CHECKLIST.md](docs/api/CAPTURE-CHECKLIST.md)** — what to click in
-  the web UI to capture the APIs still missing.
+| Area | What works |
+|---|---|
+| Auth | Login/logout, 2FA (OTP) type discovery |
+| Shelves | List |
+| Notebooks | List, create, rename, delete |
+| Notes | List, get, create, edit, move to trash, full-text search |
+| Attachments/images | Upload (embedded in a note save) and download/render inline |
+| Encryption | Client-side AES-256-CBC password-protect / unlock, fully local — DSM never sees a plaintext password or content |
+| Tags | List, create |
+| `.nsx` | Import (local ZIP decode, no server round-trip needed) |
 
-Contributions of new captures and corrections are especially welcome — the more real
-traffic we document, the more complete the client becomes.
+Verified via live capture but **not yet** used by the app: batch startup sync
+(`SYNO.Entry.Request`), sidebar shortcuts, and server-side view/sort preference sync (this
+project keeps those preferences local instead). Not yet started: to-do lists, Smart
+(saved-search) notebooks, restore-from-trash/permanent purge, sharing, public links,
+permissions, version history, `.nsx` export, and DSM-side import formats.
+
+**[`.docs/NoteStation API documentation.md`](<.docs/NoteStation API documentation.md>)** is
+the complete, maintained reference behind the table above — every method/param/response
+shape, wire conventions, the object schemas, the note-encryption scheme, and the `.nsx`
+format, each tagged **verified by live capture** or **inferred**. It's the one file from this
+project's internal `.docs/` working notes that's tracked in git and shipped publicly; the
+raw (redacted) traffic captures behind it are kept as private local working material and
+aren't shipped, since even redacted real NAS traffic isn't something to publish by default.
+
+Contributions of new capture evidence and corrections are especially welcome — open an issue
+or PR with the redacted request/response and what you observed; the more real traffic gets
+documented, the more complete both the client and the spec become.
 
 ## Getting started
 

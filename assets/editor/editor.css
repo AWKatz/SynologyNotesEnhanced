@@ -28,6 +28,14 @@ html, body {
   outline: none;
 }
 
+/* Blank lines (a block with no content but a <br>) still need visible
+   height to stay clickable — belt-and-suspenders alongside allowing <br>
+   itself in the schema. */
+#editor div:empty,
+#editor p:empty {
+  min-height: 1.6em;
+}
+
 #editor table {
   border-collapse: collapse;
 }
@@ -64,20 +72,70 @@ input.syno-notestation-editor-checkbox {
   display: inline-block;
   background: transparent;
 }
+/* `--accent` is pushed in from Flutter via window.setAccentColor()
+   (mirrors window.setDarkMode() below) so the fill follows whichever accent
+   color the user picked in Settings, not a fixed color; the var()'s own
+   fallback covers the brief window before that call lands.
+   The checkmark is a background-image (not ::after) because ::after/::before
+   generated content isn't rendered on <input> at all in Chromium — it's a
+   replaced element, same reason ::after never showed here before. Painting
+   it as a second background layer works instead, since backgrounds (unlike
+   generated content) do apply to a replaced element's own box. */
 input.syno-notestation-editor-checkbox.syno-notestation-editor-checkbox-checked {
-  background: #2c76dd;
-  border-color: #2c76dd;
+  background-color: var(--accent, #2c76dd);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 13l4 4L19 7' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
+  border-color: var(--accent, #2c76dd);
   opacity: 1;
-  position: relative;
 }
-input.syno-notestation-editor-checkbox.syno-notestation-editor-checkbox-checked::after {
-  content: '';
+
+#editor a {
+  color: var(--accent, #2c76dd);
+  text-decoration: underline;
+}
+
+#editor img.syno-notestation-image-object {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+  border-radius: 4px;
+}
+
+/* Approximate — no real Note Station capture pins exact px/em values per
+   named size, only that "syno-fontsize-x-large" is a real, round-trippable
+   class (see rich_html_schema.dart). Relative em keeps these consistent
+   with whatever surrounding font-size is in effect. */
+.syno-fontsize-small { font-size: 0.8em; }
+.syno-fontsize-medium { font-size: 1em; }
+.syno-fontsize-large { font-size: 1.3em; }
+.syno-fontsize-x-large { font-size: 1.6em; }
+
+/* Selected-image indicator: a `<div>` appended to <body>, deliberately
+   OUTSIDE #editor — see cmd*Image commands in editor.js. Anything inside
+   #editor is subject to sanitize()'s allowlist (an `img` needs an EXACT
+   class match, so toggling a second class on it directly would get the
+   whole element deleted, not just the extra class stripped), so the
+   indicator has to live outside that tree entirely to be both persistent
+   and safe. */
+.syno-image-selection-ring {
   position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 4px;
-  height: 8px;
-  border: solid white;
-  border-width: 0 2px 2px 0;
-  transform: rotate(40deg);
+  pointer-events: none;
+  border: 2px solid var(--accent, #2c76dd);
+  border-radius: 4px;
+  box-sizing: border-box;
+  z-index: 1000;
+  display: none;
+}
+
+/* Persistent text-selection highlight via the CSS Custom Highlight API
+   (CSS.highlights / Highlight, registered in editor.js) — unlike the
+   native ::selection pseudo-element, this keeps rendering even after the
+   WebView loses focus (e.g. while using the Flutter toolbar), which is
+   the whole point: the user needs to see what a toolbar action will apply
+   to. Falls back to no persistent highlight (not an error) on engines
+   without Custom Highlight API support — see editor.js's feature check. */
+::highlight(syno-editor-selection) {
+  background-color: color-mix(in srgb, var(--accent, #2c76dd) 35%, transparent);
 }

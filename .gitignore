@@ -1,4 +1,5 @@
 # Miscellaneous
+.claude/
 *.class
 *.log
 *.pyc
@@ -10,7 +11,8 @@
 .history
 .svn/
 .swiftpm/
-.docs/
+.docs/api/
+.docs/reference/
 migrate_working_dir/
 
 # IntelliJ related
@@ -44,3 +46,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Release signing credentials — never commit
+/android/key.properties
+*.jks
+*.keystore

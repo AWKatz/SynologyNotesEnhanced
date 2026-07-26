@@ -40,20 +40,26 @@ class AppTheme {
   static ThemeData dark([Color accent = defaultSeed]) =>
       _themeFor(accent, Brightness.dark);
 
-  /// The actual `primary` color an accent seed produces once themed for
-  /// [brightness] — i.e. what buttons/tags will really look like — rather
-  /// than the raw seed value. Material's tonal algorithm can shift a seed's
-  /// brightness/tone noticeably from the seed itself, and grey accents are
-  /// computed specially (see `_monochromeOverlay`), so a swatch picker
-  /// should preview this, not the raw palette entry, to avoid the color you
-  /// pick looking different from the swatch you picked it from.
-  static Color previewColorFor(Color accent, Brightness brightness) {
+  /// The actual primary + secondaryContainer colors an accent seed produces
+  /// once themed for [brightness] — i.e. what buttons and tags/chips will
+  /// really look like — rather than the raw seed value. `secondaryContainer`
+  /// (not the raw `secondary` role, which the built theme never actually
+  /// paints anywhere — see `_buildTheme`'s chipTheme/navigationBarTheme) is
+  /// what tag chips and nav selection really use. Material's tonal algorithm
+  /// (especially the `vibrant` variant) can shift these noticeably from the
+  /// seed and from each other, and grey accents are computed specially (see
+  /// `_monochromeOverlay`), so a swatch picker should preview both roles it
+  /// actually drives, not just the raw palette entry or `primary` alone — a
+  /// single-color dot can look like a different color than the tags the pick
+  /// actually produces.
+  static (Color primary, Color secondaryContainer) previewSchemeFor(
+      Color accent, Brightness brightness) {
     final neutral =
         ColorScheme.fromSeed(seedColor: _neutralSeed, brightness: brightness);
     final cs = _isAchromatic(accent)
         ? _monochromeOverlay(accent, neutral, brightness)
         : _seededOverlay(accent, neutral, brightness);
-    return cs.primary;
+    return (cs.primary, cs.secondaryContainer);
   }
 
   static ThemeData _themeFor(Color accent, Brightness brightness) {
@@ -83,22 +89,71 @@ class AppTheme {
   // the chosen color's own seeded scheme.
   static ColorScheme _seededOverlay(
       Color accent, ColorScheme neutral, Brightness brightness) {
-    final accented =
-        ColorScheme.fromSeed(seedColor: accent, brightness: brightness);
+    // Material 3's default tonal mapping (tonalSpot) noticeably mutes a
+    // seed's chroma at light mode's tone-40 primary — the same seed reads
+    // as much punchier once placed on a dark background at a higher tone,
+    // so dark mode doesn't need this. `vibrant` raises chroma across the
+    // palette instead of clamping toward the muted default.
+    final accented = ColorScheme.fromSeed(
+      seedColor: accent,
+      brightness: brightness,
+      dynamicSchemeVariant: brightness == Brightness.light
+          ? DynamicSchemeVariant.vibrant
+          : DynamicSchemeVariant.tonalSpot,
+    );
+
+    // `vibrant` still isn't enough on its own for yellow-green/cyan hues
+    // (amber, green, teal): HCT's in-gamut chroma ceiling at a given tone
+    // varies a lot by hue, and those hues simply top out lower than blues
+    // or magentas/reds do — no scheme variant changes that ceiling. HSL
+    // saturation doesn't have that same per-hue ceiling (100% is always
+    // in-gamut for every hue), so boost saturation directly as a light-mode
+    // finishing pass; only lightness (~contrast) is left untouched. Already-
+    // vivid hues are near-saturated post-`vibrant` already, so the clamp
+    // makes this a no-op for them rather than over-saturating.
+    final isLight = brightness == Brightness.light;
+    final primary =
+        isLight ? _boostSaturation(accented.primary) : accented.primary;
+    final primaryContainer = isLight
+        ? _boostSaturation(accented.primaryContainer)
+        : accented.primaryContainer;
+    final secondary =
+        isLight ? _boostSaturation(accented.secondary) : accented.secondary;
+    final secondaryContainer = isLight
+        ? _boostSaturation(accented.secondaryContainer)
+        : accented.secondaryContainer;
+    final tertiary =
+        isLight ? _boostSaturation(accented.tertiary) : accented.tertiary;
+    final tertiaryContainer = isLight
+        ? _boostSaturation(accented.tertiaryContainer)
+        : accented.tertiaryContainer;
+
     return neutral.copyWith(
-      primary: accented.primary,
+      primary: primary,
       onPrimary: accented.onPrimary,
-      primaryContainer: accented.primaryContainer,
+      primaryContainer: primaryContainer,
       onPrimaryContainer: accented.onPrimaryContainer,
-      secondary: accented.secondary,
+      secondary: secondary,
       onSecondary: accented.onSecondary,
-      secondaryContainer: accented.secondaryContainer,
+      secondaryContainer: secondaryContainer,
       onSecondaryContainer: accented.onSecondaryContainer,
-      tertiary: accented.tertiary,
+      tertiary: tertiary,
       onTertiary: accented.onTertiary,
-      tertiaryContainer: accented.tertiaryContainer,
+      tertiaryContainer: tertiaryContainer,
       onTertiaryContainer: accented.onTertiaryContainer,
     );
+  }
+
+  /// Raises HSL saturation by [factor] at fixed hue/lightness, clamped to
+  /// 100%. Unlike HCT chroma, HSL saturation's max is always in-gamut for
+  /// every hue, so this is a safe way to push yellow-green/cyan hues (whose
+  /// HCT chroma ceiling is much lower than blue/red/magenta's) closer to as
+  /// vivid as blue/red/magenta already read post-`vibrant`.
+  static Color _boostSaturation(Color c, {double factor = 1.35}) {
+    final hsl = HSLColor.fromColor(c);
+    return hsl
+        .withSaturation((hsl.saturation * factor).clamp(0.0, 1.0))
+        .toColor();
   }
 
   // Grey accents computed as plain greyscale (equal R=G=B throughout) —
@@ -120,9 +175,8 @@ class AppTheme {
     Color onFor(Color bg) =>
         (bg.toARGB32() & 0xFF) > 140 ? const Color(0xFF1A1A1A) : Colors.white;
 
-    final container = isDark
-        ? shade(channel * 0.35)
-        : shade(channel + (1 - channel) * 0.55);
+    final container =
+        isDark ? shade(channel * 0.35) : shade(channel + (1 - channel) * 0.55);
     final onMain = onFor(grey);
     final onContainer = onFor(container);
 
@@ -171,23 +225,23 @@ class AppTheme {
         filled: true,
         fillColor: cs.surfaceContainerHighest,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: cs.outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: cs.outlineVariant),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: cs.primary, width: 2),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: cs.error),
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide(color: cs.error, width: 2),
         ),
         labelStyle: TextStyle(color: cs.onSurfaceVariant),
@@ -204,18 +258,36 @@ class AppTheme {
           disabledBackgroundColor: cs.onSurface.withValues(alpha: 0.12),
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
           shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           elevation: 0,
           textStyle:
               GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),
+      // Samsung Notes' cards read as flat with only a hairline/soft shadow,
+      // not Material's tonal elevation. Still needs a tone distinct from
+      // `surface` (what most screens use as their page background), or a
+      // Card becomes only visible via its shadow — surfaceContainerLow is
+      // a subtle-but-real step up, flatter than the old surfaceContainer.
       cardTheme: CardThemeData(
-        color: cs.surfaceContainer,
-        elevation: 0,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        color: cs.surfaceContainerLow,
+        elevation: 1,
+        shadowColor: cs.shadow.withValues(alpha: 0.15),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         margin: EdgeInsets.zero,
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        // The reference FAB is a plain (not accent-filled) circle with a
+        // colored icon, so this uses a neutral tone rather than `primary` —
+        // but it must still be a genuinely different tone from the panel
+        // background it floats over (`surface`), or it's only visible via
+        // its shadow. `surfaceContainerHigh` gives that contrast in both
+        // light and dark, the way the reference's white FAB stands out
+        // against its light grey page.
+        backgroundColor: cs.surfaceContainerHigh,
+        foregroundColor: cs.primary,
+        elevation: 3,
+        shape: const CircleBorder(),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: cs.secondaryContainer,
@@ -261,8 +333,7 @@ class AppTheme {
       ),
       popupMenuTheme: PopupMenuThemeData(
         color: cs.surfaceContainerHigh,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 2,
         textStyle: TextStyle(color: cs.onSurface),
       ),

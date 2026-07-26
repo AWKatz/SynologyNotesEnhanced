@@ -237,6 +237,68 @@ class NoteStationService {
   static String _briefFromHtml(String html) =>
       html.replaceAll(RegExp(r'<[^>]+>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  /// Uploads [fileBytes] as a new image attachment while saving [content]
+  /// (which must already contain the `<img ref="$ref">` tag for this upload)
+  /// — VERIFIED (2026-07-25 HAR capture): NoteStation attaches images via
+  /// `Note.set` itself, sent as multipart/form-data instead of the usual
+  /// form-urlencoded, not a separate upload API. [ref] is caller-generated
+  /// (the capture used base64(epoch_ms + filename)) and must match the `ref`
+  /// attribute already embedded in [content]'s `<img>` tag.
+  ///
+  /// Same partial-response shape as [_setNote] (`data.data[0]`), but this one
+  /// also carries fresh `link_id`/`attachment` alongside `ver` — the capture
+  /// showed `attachment` there containing only the newly-created entry, not
+  /// the note's full attachment set, so this merges onto [note]'s existing
+  /// map rather than replacing it.
+  Future<Note> uploadNoteAttachment({
+    required Note note,
+    required String content,
+    required String fileName,
+    required List<int> fileBytes,
+    required String ref,
+  }) async {
+    final data = await _client.callMultipart(
+      api: 'SYNO.NoteStation.Note',
+      version: 3,
+      method: 'set',
+      fields: {
+        'commit_msg': {'device': 'desktop', 'listable': false},
+        'object_id': note.id,
+        if (note.ver != null) 'ver': note.ver,
+        'content': content,
+        'brief': _briefFromHtml(content),
+        'check_conflict': true,
+        'attachment': [
+          {
+            'action': 'create',
+            'name': fileName,
+            'format': 'raw',
+            'source': fileName,
+            'ref': ref,
+            'rotate': true,
+          },
+        ],
+      },
+      fileFieldName: fileName,
+      fileBytes: fileBytes,
+      fileName: fileName,
+    );
+
+    final rows = data['data'] as List<dynamic>?;
+    final row = (rows != null && rows.isNotEmpty)
+        ? rows.first as Map<String, dynamic>
+        : const <String, dynamic>{};
+    return note.copyWith(
+      content: content,
+      ver: row['ver'] as String? ?? note.ver,
+      linkId: row['link_id'] as String? ?? note.linkId,
+      attachment: {
+        ...note.attachment,
+        ...?row['attachment'] as Map<String, dynamic>?,
+      },
+    );
+  }
+
   /// Moves a note to trash. VERIFIED (Note.Ghost.txt): this is a soft delete —
   /// `method=delete` with `recycle=true` just flips the note's `recycle` flag;
   /// `object_id` is a JSON array (batch-capable) even for one note. There is no

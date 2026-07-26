@@ -4,7 +4,10 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../core/services/nsx_service.dart';
+import '../widgets/common/app_toast.dart';
 import '../providers/session_provider.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/notebooks_provider.dart';
@@ -39,6 +42,10 @@ class SettingsScreen extends ConsumerWidget {
           _SectionHeader('Appearance'),
           const _AppearanceSection(),
           const Divider(height: 32, indent: 20, endIndent: 20),
+          _SectionHeader('Library'),
+          const _StatsGrid(),
+          const _ResyncButton(),
+          const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('Storage Mode'),
           _ModeSelector(currentMode: mode),
           const Divider(height: 32, indent: 20, endIndent: 20),
@@ -47,15 +54,12 @@ class SettingsScreen extends ConsumerWidget {
             _NasConnectionTile(session: session),
             const Divider(height: 32, indent: 20, endIndent: 20),
           ],
-          _SectionHeader('Library'),
-          const _StatsGrid(),
-          const _ResyncButton(),
-          const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('Import / Export'),
           const _NsxImportExport(),
           const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('About'),
           const _AboutTile(),
+          const _GetSupportTile(),
         ],
       ),
     );
@@ -199,32 +203,55 @@ class _AppearanceSection extends ConsumerWidget {
             runSpacing: 14,
             children: AppTheme.accentPalette.map((color) {
               final selected = color.toARGB32() == accent.toARGB32();
-              // Preview the actual resulting `primary` color for this mode,
-              // not the raw seed — Material's tonal algorithm (and the
-              // grey-specific monochrome path) can shift it noticeably, so
-              // the swatch should show what buttons/tags will really look
-              // like rather than risk looking like a different color once
-              // picked.
-              final preview =
-                  AppTheme.previewColorFor(color, Theme.of(context).brightness);
-              final checkColor =
-                  preview.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+              // Preview the actual resulting primary + secondaryContainer
+              // colors for this mode, not the raw seed — Material's tonal
+              // algorithm (and the grey-specific monochrome path) can shift
+              // these noticeably, and `vibrant` can spread them further
+              // apart than the seed alone suggests. A two-way split shows
+              // what buttons and tags will really look like rather than
+              // risking a surprise once picked.
+              final (previewPrimary, previewSecondaryContainer) =
+                  AppTheme.previewSchemeFor(
+                      color, Theme.of(context).brightness);
+              final checkColor = previewPrimary.computeLuminance() > 0.5
+                  ? Colors.black
+                  : Colors.white;
               return InkWell(
                 borderRadius: BorderRadius.circular(24),
-                onTap: () => ref.read(accentColorProvider.notifier).setColor(color),
+                onTap: () =>
+                    ref.read(accentColorProvider.notifier).setColor(color),
                 child: Container(
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: preview,
                     shape: BoxShape.circle,
                     border: selected
                         ? Border.all(color: cs.onSurface, width: 2.5)
                         : null,
                   ),
-                  child: selected
-                      ? Icon(Icons.check_rounded, color: checkColor, size: 22)
-                      : null,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ClipOval(
+                        child: Row(
+                          // Row doesn't stretch children to fill its cross
+                          // axis by default, and ColoredBox has no intrinsic
+                          // size of its own — without this, each band (and
+                          // the Row itself) collapses to zero height and the
+                          // whole swatch disappears.
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(child: ColoredBox(color: previewPrimary)),
+                            Expanded(
+                                child: ColoredBox(
+                                    color: previewSecondaryContainer)),
+                          ],
+                        ),
+                      ),
+                      if (selected)
+                        Icon(Icons.check_rounded, color: checkColor, size: 22),
+                    ],
+                  ),
                 ),
               );
             }).toList(),
@@ -288,7 +315,8 @@ class _StatsGrid extends ConsumerWidget {
     final notebooksAsync = ref.watch(notebooksProvider);
 
     final totalNotes = allNotesAsync.valueOrNull?.length;
-    final starred = totalNotes == null ? null : ref.watch(starredNotesCountProvider);
+    final starred =
+        totalNotes == null ? null : ref.watch(starredNotesCountProvider);
     final todos = ref.watch(todosCountProvider);
     final userNotebooks = notebooksAsync.valueOrNull == null
         ? null
@@ -297,9 +325,8 @@ class _StatsGrid extends ConsumerWidget {
         ? null
         : ref.watch(sharedNotebooksCountProvider);
     final tagsAsync = ref.watch(tagsProvider);
-    final tagsCount = tagsAsync.valueOrNull == null
-        ? null
-        : ref.watch(tagsCountProvider);
+    final tagsCount =
+        tagsAsync.valueOrNull == null ? null : ref.watch(tagsCountProvider);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -426,7 +453,8 @@ class _ResyncButton extends ConsumerWidget {
 
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(isNas ? 'Syncing with NAS…' : 'Refreshing local data…'),
+                content: Text(
+                    isNas ? 'Syncing with NAS…' : 'Refreshing local data…'),
                 duration: const Duration(seconds: 2),
                 behavior: SnackBarBehavior.floating,
               ),
@@ -478,7 +506,8 @@ class _NsxImportExportState extends ConsumerState<_NsxImportExport> {
       // Imported into offline storage — switch to local mode so it's visible.
       ref.read(appModeProvider.notifier).state = AppMode.local;
       _invalidateAll(ref);
-      _snack('Imported $notes note(s) and $nb notebook(s) into offline storage.');
+      _snack(
+          'Imported $notes note(s) and $nb notebook(s) into offline storage.');
     } catch (e) {
       _snack('Import failed: not a valid .nsx file.');
     } finally {
@@ -569,7 +598,53 @@ class _AboutTile extends StatelessWidget {
     return ListTile(
       leading: Icon(Icons.info_outline_rounded, color: cs.onSurfaceVariant),
       title: const Text('Synology Notes Enhanced'),
-      subtitle: const Text('Version 1.0.0'),
+      // Reads the version pubspec.yaml declares rather than a hardcoded
+      // copy — that field is the single source of truth we actually bump
+      // per release, and a second hand-maintained copy here is exactly how
+      // this drifted out of sync (pubspec at 1.0.0, this stuck on 1.0.0 too
+      // until the pubspec moved and this didn't).
+      subtitle: FutureBuilder<PackageInfo>(
+        future: PackageInfo.fromPlatform(),
+        builder: (context, snapshot) {
+          final version = snapshot.data?.version;
+          return Text(version == null ? 'Version…' : 'Version $version');
+        },
+      ),
     );
+  }
+}
+
+class _GetSupportTile extends StatelessWidget {
+  const _GetSupportTile();
+
+  static final _supportUri = Uri(
+    scheme: 'mailto',
+    path: 'aaron@simpleflights.ca',
+    queryParameters: {'subject': 'Synology Notes Enhanced - Support Request'},
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: Icon(Icons.support_agent_rounded, color: cs.onSurfaceVariant),
+      title: const Text('Get Support'),
+      subtitle: const Text('Email the developer'),
+      onTap: () => _emailSupport(context),
+    );
+  }
+
+  Future<void> _emailSupport(BuildContext context) async {
+    try {
+      final launched =
+          await launchUrl(_supportUri, mode: LaunchMode.externalApplication);
+      if (!launched && context.mounted) {
+        AppToast.error(context, 'Could not open your email app.');
+      }
+    } catch (_) {
+      if (context.mounted) {
+        AppToast.error(context, 'Could not open your email app.');
+      }
+    }
   }
 }

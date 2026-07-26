@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/session_provider.dart';
 import '../widgets/sidebar/sidebar.dart';
-import '../widgets/note_list/note_list.dart';
+import '../widgets/note_list/note_list.dart' show NoteList, NewNoteFab;
 import '../widgets/note_editor/note_editor.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -26,17 +26,33 @@ class HomeScreen extends ConsumerWidget {
 class _ThreePanelLayout extends ConsumerWidget {
   const _ThreePanelLayout();
 
+  static const _sidebarExpandedWidth = 220.0;
+  static const _sidebarCollapsedWidth = 40.0;
+  static const _noteListBaseWidth = 280.0;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final collapsed = ref.watch(sidebarCollapsedProvider);
+    final cs = Theme.of(context).colorScheme;
+
+    // When the sidebar collapses, the note list grows by exactly the width
+    // it freed up — a direct swap, so the editor's own width is unaffected —
+    // giving the folder strip and note grid more room to show more at once.
+    final noteListWidth = collapsed
+        ? _noteListBaseWidth + (_sidebarExpandedWidth - _sidebarCollapsedWidth)
+        : _noteListBaseWidth;
 
     return Scaffold(
+      // Panels sit on a slightly darker page background and read as
+      // distinct soft-edged sections (a thin gap + rounded corners) rather
+      // than being separated by hard dividing lines.
+      backgroundColor: cs.surfaceContainerLowest,
       body: Row(
         children: [
           AnimatedContainer(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeInOut,
-            width: collapsed ? 40 : 220,
+            width: collapsed ? _sidebarCollapsedWidth : _sidebarExpandedWidth,
             child: ClipRect(
               child: collapsed
                   ? _CollapsedRail(
@@ -55,19 +71,58 @@ class _ThreePanelLayout extends ConsumerWidget {
                   // its box — which ClipRect then crops during the
                   // transition, instead of forcing a relayout that overflows.
                   : const OverflowBox(
-                      minWidth: 220,
-                      maxWidth: 220,
+                      minWidth: _sidebarExpandedWidth,
+                      maxWidth: _sidebarExpandedWidth,
                       alignment: Alignment.centerLeft,
                       child: AppSidebar(),
                     ),
             ),
           ),
-          const VerticalDivider(width: 1),
-          const SizedBox(width: 280, child: NoteList()),
-          const VerticalDivider(width: 1),
-          const Expanded(child: NoteEditor()),
+          const SizedBox(width: 8),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            width: noteListWidth,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: const NoteList(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: const _EditorPanel(),
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+}
+
+// The editor panel hosts the "new note" FAB (not the note list panel) so it
+// never floats on top of note cards a user is trying to scroll through.
+class _EditorPanel extends StatelessWidget {
+  const _EditorPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        const NoteEditor(),
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: NewNoteFab(),
+        ),
+      ],
     );
   }
 }
@@ -91,22 +146,32 @@ class _CollapsedRail extends ConsumerWidget {
       child: Column(
         children: [
           const SizedBox(height: 10),
-          // App logo icon — mirrors the sidebar header avatar
+          // App logo icon — mirrors the sidebar header avatar.
+          // TEMPORARY: placeholder app mark while the real design gets
+          // finalized — swaps out the mode-colored customizable icon below
+          // rather than deleting it, so restoring it later is a one-line
+          // revert. Keep in sync with _SidebarHeader in sidebar.dart.
           Tooltip(
             message: isOffline ? 'Offline Mode' : (session?.username ?? 'Not connected'),
-            child: Container(
+            child: Image.asset(
+              'assets/icons/app_icon.png',
               width: 32,
               height: 32,
-              decoration: BoxDecoration(
-                color: isOffline ? cs.secondaryContainer : cs.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                isOffline ? Icons.phone_android_rounded : Icons.note_alt_rounded,
-                color: isOffline ? cs.onSecondaryContainer : cs.onPrimary,
-                size: 18,
-              ),
+              fit: BoxFit.contain,
             ),
+            // child: Container(
+            //   width: 32,
+            //   height: 32,
+            //   decoration: BoxDecoration(
+            //     color: isOffline ? cs.secondaryContainer : cs.primary,
+            //     borderRadius: BorderRadius.circular(8),
+            //   ),
+            //   child: Icon(
+            //     isOffline ? Icons.phone_android_rounded : Icons.note_alt_rounded,
+            //     color: isOffline ? cs.onSecondaryContainer : cs.onPrimary,
+            //     size: 18,
+            //   ),
+            // ),
           ),
           const SizedBox(height: 4),
           // Expand button
@@ -152,8 +217,10 @@ class _TwoPanelLayoutState extends ConsumerState<_TwoPanelLayout> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       key: _scaffoldKey,
+      backgroundColor: cs.surfaceContainerLowest,
       drawer: const SizedBox(width: 240, child: Drawer(child: AppSidebar())),
       appBar: AppBar(
         leading: IconButton(
@@ -163,11 +230,28 @@ class _TwoPanelLayoutState extends ConsumerState<_TwoPanelLayout> {
         title: const Text('Synology Notes Enhanced'),
         actions: const [_AppBarActions()],
       ),
-      body: const Row(
+      body: Row(
         children: [
-          SizedBox(width: 260, child: NoteList()),
-          VerticalDivider(width: 1),
-          Expanded(child: NoteEditor()),
+          SizedBox(
+            width: 260,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: const NoteList(),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: const _EditorPanel(),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -198,7 +282,7 @@ class _MobileLayoutState extends ConsumerState<_MobileLayout> {
         children: const [
           AppSidebar(),
           NoteList(),
-          NoteEditor(),
+          _EditorPanel(),
         ],
       ),
       bottomNavigationBar: NavigationBar(

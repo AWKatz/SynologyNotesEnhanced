@@ -1,5 +1,7 @@
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:intl/intl.dart';
 import '../../models/note.dart';
 import '../../models/notebook.dart';
@@ -20,14 +22,20 @@ class NoteList extends ConsumerWidget {
     final notesAsync = ref.watch(notesProvider);
     final selectedId = ref.watch(selectedNoteIdProvider);
     final selectedNotebook = ref.watch(selectedNotebookProvider);
+    final filter = ref.watch(noteFilterProvider);
+    // The folder strip is a quick-access shortcut into a notebook — only
+    // useful from the unscoped "All Notes" root, same as the reference
+    // screenshots' own Folders hub. Once a notebook or a filter view is
+    // active, the grid below is already scoped, so the strip would be
+    // redundant.
+    final showFolderStrip = filter == null && selectedNotebook == null;
 
     return Container(
       color: cs.surface,
       child: Column(
         children: [
-          _NoteListHeader(
-            title: selectedNotebook?.name ?? 'All Notes',
-          ),
+          const _NoteListHeader(),
+          if (showFolderStrip) const _FolderStrip(),
           Expanded(
             child: notesAsync.when(
               loading: () => const Center(
@@ -56,28 +64,9 @@ class NoteList extends ConsumerWidget {
               data: (_) {
                 final notes = ref.watch(filteredNotesProvider);
                 if (notes.isEmpty) {
-                  return _EmptyState(
-                      hasNotebook: selectedNotebook != null);
+                  return _EmptyState(filter: filter);
                 }
-                return ListView.separated(
-                  itemCount: notes.length,
-                  separatorBuilder: (_, __) => Divider(
-                    height: 1,
-                    indent: 16,
-                    endIndent: 16,
-                    color: cs.outlineVariant.withValues(alpha: 0.5),
-                  ),
-                  itemBuilder: (context, i) {
-                    final note = notes[i];
-                    return _NoteListItem(
-                      note: note,
-                      isSelected: note.id == selectedId,
-                      onTap: () => ref
-                          .read(selectedNoteIdProvider.notifier)
-                          .state = note.id,
-                    );
-                  },
-                );
+                return _NoteGrid(notes: notes, selectedId: selectedId);
               },
             ),
           ),
@@ -87,18 +76,47 @@ class NoteList extends ConsumerWidget {
   }
 }
 
+/// "New note" FAB — lives over the editor panel (not the note list) so it
+/// never overlaps the note grid it would otherwise float on top of.
+class NewNoteFab extends ConsumerWidget {
+  const NewNoteFab({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return FloatingActionButton(
+      onPressed: () => _createNote(context, ref),
+      tooltip: 'New Note',
+      child: const Icon(Icons.edit_rounded),
+    );
+  }
+}
+
+// ── Header: title, count, search, sort ───────────────────────────────────────
+
 class _NoteListHeader extends ConsumerWidget {
-  final String title;
-  const _NoteListHeader({required this.title});
+  const _NoteListHeader();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
     final count = ref.watch(filteredNotesProvider).length;
     final query = ref.watch(searchQueryProvider);
+    final selectedNotebook = ref.watch(selectedNotebookProvider);
+    final filter = ref.watch(noteFilterProvider);
+    final (sortField, ascending) = ref.watch(noteSortProvider);
+
+    final title = switch (filter) {
+      NoteFilter.favorites => 'Favorites',
+      NoteFilter.locked => 'Locked Notes',
+      null => selectedNotebook?.name ?? 'All Notes',
+    };
+    // Whenever we're scoped to a specific notebook or filter view, the
+    // folder strip (the only other way back to "All Notes") is hidden —
+    // so offer a way back right next to the label it replaced.
+    final showBack = filter != null || selectedNotebook != null;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
       decoration: BoxDecoration(
         color: cs.surface,
         border: Border(bottom: BorderSide(color: cs.outlineVariant)),
@@ -108,48 +126,99 @@ class _NoteListHeader extends ConsumerWidget {
         children: [
           Row(
             children: [
+              if (showBack)
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  tooltip: 'Back to All Notes',
+                  iconSize: 20,
+                  color: cs.onSurfaceVariant,
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.only(right: 8),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () {
+                    ref.read(selectedNotebookIdProvider.notifier).state = null;
+                    ref.read(noteFilterProvider.notifier).state = null;
+                    ref.read(selectedNoteIdProvider.notifier).state = null;
+                  },
+                ),
               Expanded(
                 child: Text(
                   title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
                         color: cs.onSurface,
                       ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               Text(
                 '$count',
                 style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
               ),
-              const SizedBox(width: 4),
-              IconButton(
-                icon: const Icon(Icons.add_rounded),
-                onPressed: () => _createNote(context, ref),
-                tooltip: 'New Note',
-                iconSize: 20,
-                color: cs.primary,
-                constraints: const BoxConstraints(),
-                padding: const EdgeInsets.all(4),
-              ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           TextField(
             decoration: const InputDecoration(
               hintText: 'Search notes…',
               prefixIcon: Icon(Icons.search_rounded, size: 18),
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               isDense: true,
             ),
             style: TextStyle(fontSize: 13, color: cs.onSurface),
-            onChanged: (v) =>
-                ref.read(searchQueryProvider.notifier).state = v,
+            onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
             controller: TextEditingController(text: query)
               ..selection = TextSelection(
                 baseOffset: query.length,
                 extentOffset: query.length,
               ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              PopupMenuButton<NoteSortField>(
+                tooltip: 'Sort by',
+                initialValue: sortField,
+                onSelected: (field) => ref
+                    .read(noteSortProvider.notifier)
+                    .state = (field, ascending),
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                      value: NoteSortField.updated, child: Text('Date')),
+                  PopupMenuItem(
+                      value: NoteSortField.title, child: Text('Title')),
+                ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.sort_rounded,
+                        size: 14, color: cs.onSurfaceVariant),
+                    const SizedBox(width: 4),
+                    Text(
+                      sortField == NoteSortField.title ? 'Title' : 'Date',
+                      style:
+                          TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(
+                  ascending
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded,
+                  size: 15,
+                ),
+                tooltip: ascending ? 'Ascending' : 'Descending',
+                color: cs.onSurfaceVariant,
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.all(6),
+                visualDensity: VisualDensity.compact,
+                onPressed: () => ref.read(noteSortProvider.notifier).state =
+                    (sortField, !ascending),
+              ),
+            ],
           ),
         ],
       ),
@@ -157,12 +226,278 @@ class _NoteListHeader extends ConsumerWidget {
   }
 }
 
-class _NoteListItem extends ConsumerWidget {
+// ── Folder strip: quick-access notebook cards above the "All Notes" grid ────
+
+/// Purely a UI preference (not persisted) — lets a user reclaim the folder
+/// strip's screen space for the note grid below it without losing the
+/// strip entirely, via the header's own collapse toggle.
+final _folderStripCollapsedProvider = StateProvider<bool>((ref) => false);
+
+class _FolderStrip extends ConsumerStatefulWidget {
+  const _FolderStrip();
+
+  static const _crossAxisCount = 3;
+  static const _visibleRows = 2;
+  static const _rowHeight = 60.0;
+  static const _spacing = 8.0;
+  // Padding (10 top + 10 bottom) + N fixed-height rows + the gaps between
+  // them — a compact grid, more folders scroll into view underneath.
+  static const _stripHeight =
+      20.0 + _rowHeight * _visibleRows + _spacing * (_visibleRows - 1);
+
+  @override
+  ConsumerState<_FolderStrip> createState() => _FolderStripState();
+}
+
+class _FolderStripState extends ConsumerState<_FolderStrip> {
+  // See _NoteGridState's controller for why this can't be left implicit —
+  // a Scrollbar with no controller crashes on hover if it hasn't yet found
+  // a ScrollPosition via bubbled notifications, which desktop hover can
+  // easily trigger before any scroll has happened.
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
+    if (notebooks.isEmpty) return const SizedBox.shrink();
+
+    final cs = Theme.of(context).colorScheme;
+    final collapsed = ref.watch(_folderStripCollapsedProvider);
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: cs.outlineVariant)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => ref
+                  .read(_folderStripCollapsedProvider.notifier)
+                  .state = !collapsed,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'FOLDERS',
+                        style: TextStyle(
+                          color: cs.onSurfaceVariant,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      collapsed
+                          ? Icons.expand_more_rounded
+                          : Icons.expand_less_rounded,
+                      size: 18,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: collapsed
+                ? const SizedBox(width: double.infinity)
+                : SizedBox(
+                    height: _FolderStrip._stripHeight,
+                    // Same fix as the note grid below: desktop's default
+                    // ScrollBehavior excludes mouse from drag-to-scroll
+                    // devices, and this grid has no scrollbar of its own —
+                    // without both, a mouse has no way to scroll past the
+                    // first rows of notebooks.
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context).copyWith(
+                        dragDevices: {...PointerDeviceKind.values},
+                      ),
+                      child: Scrollbar(
+                        controller: _scrollController,
+                        child: GridView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: _FolderStrip._crossAxisCount,
+                            mainAxisSpacing: _FolderStrip._spacing,
+                            crossAxisSpacing: _FolderStrip._spacing,
+                            mainAxisExtent: _FolderStrip._rowHeight,
+                          ),
+                          itemCount: notebooks.length,
+                          itemBuilder: (context, i) =>
+                              _FolderCard(notebook: notebooks[i]),
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FolderCard extends ConsumerWidget {
+  final Notebook notebook;
+  const _FolderCard({required this.notebook});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final color = ref.watch(notebookColorsProvider)[notebook.id] ??
+        cs.onSurfaceVariant.withValues(alpha: 0.4);
+
+    return Material(
+      color: cs.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          ref.read(selectedNotebookIdProvider.notifier).state = notebook.id;
+          ref.read(selectedNoteIdProvider.notifier).state = null;
+          ref.read(noteFilterProvider.notifier).state = null;
+        },
+        child: Stack(
+          children: [
+            // Corner-fold tab — the reference screenshots' signature
+            // folder-card accent.
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                width: 26,
+                height: 11,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 8, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${notebook.noteCount}',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    notebook.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Note grid (masonry) ───────────────────────────────────────────────────────
+
+class _NoteGrid extends StatefulWidget {
+  final List<Note> notes;
+  final String? selectedId;
+  const _NoteGrid({required this.notes, required this.selectedId});
+
+  @override
+  State<_NoteGrid> createState() => _NoteGridState();
+}
+
+class _NoteGridState extends State<_NoteGrid> {
+  // A Scrollbar given no controller falls back to locating its Scrollable
+  // via bubbled ScrollNotifications (or the PrimaryScrollController, which
+  // desktop ScrollViews don't auto-attach to at all) — fragile enough that
+  // a hover before any scroll notification has ever fired crashes the
+  // animation library outright. Owning the controller explicitly and
+  // handing the *same instance* to both the grid and the Scrollbar sidesteps
+  // that lookup entirely.
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cols = (constraints.maxWidth / 170).floor().clamp(1, 4);
+        // Flutter's default desktop ScrollBehavior only allows drag-to-scroll
+        // from touch/stylus/trackpad, not mouse — and a masonry grid has no
+        // scrollbar of its own. Without both of these, there is no way to
+        // scroll this grid with a mouse at all (wheel is unaffected by
+        // either, but isn't a substitute for a discoverable drag affordance).
+        return ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {...PointerDeviceKind.values},
+          ),
+          child: Scrollbar(
+            controller: _scrollController,
+            child: MasonryGridView.count(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(12),
+              crossAxisCount: cols,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              itemCount: widget.notes.length,
+              itemBuilder: (context, i) {
+                return Consumer(
+                  builder: (context, ref, _) => _NoteCard(
+                    note: widget.notes[i],
+                    isSelected: widget.notes[i].id == widget.selectedId,
+                    onTap: () => ref
+                        .read(selectedNoteIdProvider.notifier)
+                        .state = widget.notes[i].id,
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _NoteCard extends ConsumerWidget {
   final Note note;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _NoteListItem({
+  const _NoteCard({
     required this.note,
     required this.isSelected,
     required this.onTap,
@@ -174,122 +509,141 @@ class _NoteListItem extends ConsumerWidget {
     final tagNames = ref.watch(tagNameMapProvider);
     final dateStr = _formatDate(note.updatedAt ?? note.createdAt);
     final noteColor = ref.watch(noteColorsProvider)[note.id];
-    final noteColorLabel =
-        noteColor == null ? null : ref.watch(colorLabelsProvider)[noteColor.toARGB32()];
+    final noteColorLabel = noteColor == null
+        ? null
+        : ref.watch(colorLabelsProvider)[noteColor.toARGB32()];
 
-    final resolvedTags = note.tags
-        .map((id) => tagNames[id] ?? id)
-        .take(3)
-        .toList();
+    final resolvedTags =
+        note.tags.map((id) => tagNames[id] ?? id).take(3).toList();
 
     return Material(
-      color: isSelected
-          ? cs.primaryContainer.withValues(alpha: 0.35)
-          : Colors.transparent,
+      color:
+          isSelected ? cs.primaryContainer.withValues(alpha: 0.3) : cs.surface,
+      borderRadius: BorderRadius.circular(16),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: isSelected || noteColor != null
-              ? BoxDecoration(
-                  border: Border(
-                    left: BorderSide(
-                      color: isSelected ? cs.primary : noteColor!,
-                      width: isSelected ? 2 : 3,
-                    ),
-                  ),
-                )
-              : null,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: isSelected
+                  ? cs.primary
+                  : cs.outlineVariant.withValues(alpha: 0.5),
+              width: isSelected ? 1.5 : 1,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Row(
-                children: [
-                  if (note.isPinned)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: Icon(Icons.push_pin_rounded,
-                          size: 12, color: cs.primary),
+              if (noteColor != null) Container(height: 4, color: noteColor),
+              Padding(
+                padding:
+                    EdgeInsets.fromLTRB(12, noteColor != null ? 8 : 12, 10, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (note.isPinned)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4, top: 2),
+                            child: Icon(Icons.push_pin_rounded,
+                                size: 12, color: cs.primary),
+                          ),
+                        if (note.isFavorite)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 4, top: 2),
+                            child: Icon(Icons.star_rounded,
+                                size: 12, color: Color(0xFFF59E0B)),
+                          ),
+                        if (note.isEncrypted)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4, top: 2),
+                            child: Icon(Icons.lock_rounded,
+                                size: 12, color: cs.onSurfaceVariant),
+                          ),
+                        Expanded(
+                          child: Text(
+                            note.title,
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              color: cs.onSurface,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
-                  if (note.isFavorite)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 4),
-                      child: Icon(Icons.star_rounded,
-                          size: 12, color: Color(0xFFF59E0B)),
-                    ),
-                  if (note.isEncrypted)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: Icon(Icons.lock_rounded,
-                          size: 12, color: cs.onSurfaceVariant),
-                    ),
-                  Expanded(
-                    child: Text(
-                      note.title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.w500,
-                        color: cs.onSurface,
+                    if (note.displayExcerpt.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        note.displayExcerpt,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                        maxLines: 5,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    ],
+                    if (resolvedTags.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 4,
+                        children: resolvedTags
+                            .map((tag) => _TagChip(tag: tag))
+                            .toList(),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            dateStr,
+                            style: TextStyle(
+                                fontSize: 10.5, color: cs.onSurfaceVariant),
+                          ),
+                        ),
+                        PopupMenuButton<String>(
+                          icon: Icon(Icons.more_vert_rounded,
+                              size: 16, color: cs.onSurfaceVariant),
+                          tooltip: 'Note actions',
+                          constraints: const BoxConstraints(),
+                          padding: EdgeInsets.zero,
+                          onSelected: (action) {
+                            if (action == 'color') {
+                              showColorPicker(context, ref,
+                                  id: note.id,
+                                  colorsProvider: noteColorsProvider);
+                            } else if (action == 'delete') {
+                              _confirmDeleteNote(context, ref, note);
+                            }
+                          },
+                          itemBuilder: (context) => [
+                            PopupMenuItem(
+                              value: 'color',
+                              child: Text(noteColorLabel ?? 'Set Color'),
+                            ),
+                            const PopupMenuItem(
+                                value: 'delete', child: Text('Delete')),
+                          ],
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    dateStr,
-                    style:
-                        TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      noteColor != null
-                          ? Icons.label_rounded
-                          : Icons.label_outline_rounded,
-                      size: 15,
-                    ),
-                    tooltip: noteColorLabel ?? 'Set Color',
-                    color: noteColor ?? cs.onSurfaceVariant,
-                    constraints: const BoxConstraints(),
-                    padding: const EdgeInsets.only(left: 6),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => showColorPicker(context, ref,
-                        id: note.id, colorsProvider: noteColorsProvider),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline_rounded, size: 15),
-                    tooltip: 'Delete Note',
-                    color: cs.onSurfaceVariant,
-                    constraints: const BoxConstraints(),
-                    padding: const EdgeInsets.only(left: 6),
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _confirmDeleteNote(context, ref, note),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              if (note.displayExcerpt.isNotEmpty) ...[
-                const SizedBox(height: 3),
-                Text(
-                  note.displayExcerpt,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurfaceVariant,
-                    height: 1.4,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-              if (resolvedTags.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  children: resolvedTags
-                      .map((tag) => _TagChip(tag: tag))
-                      .toList(),
-                ),
-              ],
             ],
           ),
         ),
@@ -334,28 +688,34 @@ class _TagChip extends StatelessWidget {
 }
 
 class _EmptyState extends ConsumerWidget {
-  final bool hasNotebook;
-  const _EmptyState({required this.hasNotebook});
+  final NoteFilter? filter;
+  const _EmptyState({required this.filter});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
+    final message = switch (filter) {
+      NoteFilter.favorites => 'No favorite notes yet',
+      NoteFilter.locked => 'No locked notes',
+      null => ref.watch(selectedNotebookProvider) != null
+          ? 'No notes in this notebook'
+          : 'No notes found',
+    };
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(Icons.note_rounded, size: 48, color: cs.onSurfaceVariant),
           const SizedBox(height: 12),
-          Text(
-            hasNotebook ? 'No notes in this notebook' : 'No notes found',
-            style: TextStyle(color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(height: 8),
-          TextButton.icon(
-            onPressed: () => _createNote(context, ref),
-            icon: const Icon(Icons.add_rounded, size: 16),
-            label: const Text('New Note'),
-          ),
+          Text(message, style: TextStyle(color: cs.onSurfaceVariant)),
+          if (filter == null) ...[
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => _createNote(context, ref),
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('New Note'),
+            ),
+          ],
         ],
       ),
     );
@@ -390,15 +750,15 @@ void _confirmDeleteNote(BuildContext context, WidgetRef ref, Note note) {
               if (ref.read(selectedNoteIdProvider) == note.id) {
                 ref.read(selectedNoteIdProvider.notifier).state = null;
               }
-              ref.invalidate(notesProvider);
-              ref.invalidate(notebooksProvider);
+              syncAfterMutation(ref);
               if (context.mounted) {
                 AppToast.success(
                   context,
                   isLocal ? 'Note deleted' : 'Moved to trash',
                 );
               }
-            } catch (_) {
+            } catch (e) {
+              debugPrint('Delete note failed: $e');
               if (context.mounted) {
                 AppToast.error(context, 'Could not delete the note.');
               }
@@ -437,13 +797,15 @@ Future<void> _createNote(BuildContext context, WidgetRef ref) async {
   final progress = AppToast.progress(context, 'Creating note…');
 
   try {
-    final note = await repo.createNote(notebookId: notebookId, title: 'Untitled Note');
-    ref.invalidate(notesProvider);
-    ref.invalidate(notebooksProvider);
+    final note =
+        await repo.createNote(notebookId: notebookId, title: 'Untitled Note');
+    syncAfterMutation(ref);
     ref.read(selectedNotebookIdProvider.notifier).state = notebookId;
+    ref.read(noteFilterProvider.notifier).state = null;
     ref.read(selectedNoteIdProvider.notifier).state = note.id;
     progress.close();
-  } catch (_) {
+  } catch (e) {
+    debugPrint('Create note failed: $e');
     progress.close();
     if (context.mounted) AppToast.error(context, 'Could not create the note.');
   }

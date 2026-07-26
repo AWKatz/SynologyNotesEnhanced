@@ -35,4 +35,17 @@ abstract class NotesRepository {
   /// format, but never leaves the stock client's plaintext-duplicate behind).
   /// Local mode: rewrites the note in place.
   Future<Note> encryptNote({required Note note, required String password});
+
+  /// Uploads an image attachment while saving [content] (which must already
+  /// embed the matching `<img ref="$ref">` tag) — see
+  /// NoteStationService.uploadNoteAttachment for the verified wire format.
+  /// NAS-only: offline/local mode has no attachment storage, matching how
+  /// rich-editor saves are already NAS-only (see note_editor.dart).
+  Future<Note> uploadNoteAttachment({
+    required Note note,
+    required String content,
+    required String fileName,
+    required List<int> fileBytes,
+    required String ref,
+  });
 }

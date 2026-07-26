@@ -18,3 +18,16 @@ final noteStationServiceProvider = Provider<NoteStationService?>((ref) {
   if (client == null) return null;
   return NoteStationService(client);
 });
+
+/// The short-lived download ticket (`tid`) inline note images need (see
+/// [SynologyApiClient.noteImageUri]/[SynologyApiClient.grantDownloadTicket]).
+/// Fetched once per session and cached here — every image in every note
+/// reuses it rather than granting a fresh ticket per image.
+final noteImageTidProvider = FutureProvider<String?>((ref) async {
+  final client = ref.watch(apiClientProvider);
+  if (client == null) return null;
+  return client.grantDownloadTicket(
+    api: 'SYNO.NoteStation.Note',
+    methods: ['download'],
+  );
+});

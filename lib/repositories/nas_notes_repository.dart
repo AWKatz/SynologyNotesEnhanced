@@ -87,4 +87,20 @@ class NasNotesRepository implements NotesRepository {
     await _service.deleteNote(note.id);
     return encrypted;
   }
+
+  @override
+  Future<Note> uploadNoteAttachment({
+    required Note note,
+    required String content,
+    required String fileName,
+    required List<int> fileBytes,
+    required String ref,
+  }) =>
+      _service.uploadNoteAttachment(
+        note: note,
+        content: content,
+        fileName: fileName,
+        fileBytes: fileBytes,
+        ref: ref,
+      );
 }

@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for every network call the app makes (Synology NAS API, image/attachment
+         fetches). Only present in the debug/profile manifests by default in the stock
+         Flutter template (added there for the Dart VM debug connection), which are NOT
+         merged into release builds — without this, a release APK/AAB would have no
+         network access at all. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="Synology Notes Enhanced"
         android:name="${applicationName}"

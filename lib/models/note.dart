@@ -14,6 +14,13 @@ class Note {
   final bool isEncrypted;
   // Server revision (sha1) — required by Note.set for optimistic concurrency.
   final String? ver;
+  // Short id used in the note's image-attachment download URL — see
+  // SynologyApiClient.noteImageUri. Not the same as [id] (which is the
+  // longer `object_id`).
+  final String? linkId;
+  // Keyed by attachment ref → {md5,name,ext,width,height,size,...}. Used to
+  // resolve a saved <img ref="..."> tag to a real downloadable URL.
+  final Map<String, dynamic> attachment;
 
   const Note({
     required this.id,
@@ -28,6 +35,8 @@ class Note {
     this.isFavorite = false,
     this.isEncrypted = false,
     this.ver,
+    this.linkId,
+    this.attachment = const {},
   });
 
   /// Never derived from `content` or `excerpt` for encrypted notes — those may
@@ -73,6 +82,8 @@ class Note {
       // Real API: encrypted flag is `encrypt`.
       isEncrypted: json['encrypt'] as bool? ?? json['is_encrypted'] as bool? ?? false,
       ver: json['ver'] as String?,
+      linkId: json['link_id'] as String?,
+      attachment: (json['attachment'] as Map<String, dynamic>?) ?? const {},
     );
   }
 
@@ -85,6 +96,8 @@ class Note {
         'tag': tags,
         'is_starred': isFavorite,
         'is_encrypted': isEncrypted,
+        'link_id': linkId,
+        'attachment': attachment,
       };
 
   Note copyWith({
@@ -100,6 +113,8 @@ class Note {
     bool? isFavorite,
     bool? isEncrypted,
     String? ver,
+    String? linkId,
+    Map<String, dynamic>? attachment,
   }) {
     return Note(
       id: id ?? this.id,
@@ -114,6 +129,8 @@ class Note {
       isFavorite: isFavorite ?? this.isFavorite,
       isEncrypted: isEncrypted ?? this.isEncrypted,
       ver: ver ?? this.ver,
+      linkId: linkId ?? this.linkId,
+      attachment: attachment ?? this.attachment,
     );
   }
 

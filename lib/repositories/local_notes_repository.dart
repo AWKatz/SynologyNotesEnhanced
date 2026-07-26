@@ -398,4 +398,22 @@ class LocalNotesRepository implements NotesRepository {
           n.displayExcerpt.toLowerCase().contains(q);
     }).toList();
   }
+
+  // ── Attachments ───────────────────────────────────────────────────────────────
+
+  @override
+  Future<Note> uploadNoteAttachment({
+    required Note note,
+    required String content,
+    required String fileName,
+    required List<int> fileBytes,
+    required String ref,
+  }) {
+    // Offline mode has no attachment server to upload to, and rich-editor
+    // saves are already NAS-only (see note_editor.dart's noteStationService
+    // gate) — this method is unreachable in local mode today, but throws
+    // explicitly rather than silently dropping the image if that changes.
+    throw UnsupportedError(
+        'Image attachments require NAS mode; offline notes cannot upload.');
+  }
 }
