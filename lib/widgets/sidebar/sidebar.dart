@@ -4,7 +4,12 @@ import 'package:go_router/go_router.dart';
 import '../../models/notebook.dart';
 import '../../models/shelf.dart';
 import '../../providers/app_mode_provider.dart'
-    show AppMode, appModeProvider, sidebarCollapsedProvider, repositoryProvider;
+    show
+        AppMode,
+        appModeProvider,
+        sidebarCollapsedProvider,
+        repositoryProvider,
+        mobileTabIndexProvider;
 import '../../providers/notebooks_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/note_color_provider.dart';
@@ -136,23 +141,14 @@ class _SidebarHeader extends ConsumerWidget {
           // ),
           const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Synology Notes Enhanced',
-                  style: TextStyle(
-                    color: cs.onSurface,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  displayName,
-                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+            child: Text(
+              displayName,
+              style: TextStyle(
+                color: cs.onSurface,
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
           IconButton(
@@ -289,6 +285,7 @@ class _AllNotesItem extends ConsumerWidget {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
         ref.read(noteFilterProvider.notifier).state = null;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
     );
   }
@@ -317,6 +314,7 @@ class _FavoritesItem extends ConsumerWidget {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
         ref.read(noteFilterProvider.notifier).state = NoteFilter.favorites;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
     );
   }
@@ -343,6 +341,7 @@ class _LockedNotesItem extends ConsumerWidget {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
         ref.read(noteFilterProvider.notifier).state = NoteFilter.locked;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
     );
   }
@@ -432,6 +431,7 @@ class _NotebookItem extends ConsumerWidget {
       onTap: () {
         ref.read(selectedNotebookIdProvider.notifier).state = notebook.id;
         ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
       trailing: PopupMenuButton<String>(
         icon:

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../providers/app_mode_provider.dart';
 import '../providers/session_provider.dart';
 import '../widgets/sidebar/sidebar.dart';
@@ -228,7 +227,6 @@ class _TwoPanelLayoutState extends ConsumerState<_TwoPanelLayout> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         title: const Text('Synology Notes Enhanced'),
-        actions: const [_AppBarActions()],
       ),
       body: Row(
         children: [
@@ -260,25 +258,18 @@ class _TwoPanelLayoutState extends ConsumerState<_TwoPanelLayout> {
 
 // ── Mobile: bottom nav ───────────────────────────────────────────────────────
 
-class _MobileLayout extends ConsumerStatefulWidget {
+class _MobileLayout extends ConsumerWidget {
   const _MobileLayout();
 
   @override
-  ConsumerState<_MobileLayout> createState() => _MobileLayoutState();
-}
-
-class _MobileLayoutState extends ConsumerState<_MobileLayout> {
-  int _tab = 0;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tab = ref.watch(mobileTabIndexProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Synology Notes Enhanced'),
-        actions: const [_AppBarActions()],
       ),
       body: IndexedStack(
-        index: _tab,
+        index: tab,
         children: const [
           AppSidebar(),
           NoteList(),
@@ -286,8 +277,9 @@ class _MobileLayoutState extends ConsumerState<_MobileLayout> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
+        selectedIndex: tab,
+        onDestinationSelected: (i) =>
+            ref.read(mobileTabIndexProvider.notifier).state = i,
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.folder_outlined),
@@ -306,38 +298,6 @@ class _MobileLayoutState extends ConsumerState<_MobileLayout> {
           ),
         ],
       ),
-    );
-  }
-}
-
-// ── AppBar actions: settings always visible, sign-out only in NAS mode ───────
-
-class _AppBarActions extends ConsumerWidget {
-  const _AppBarActions();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final isOffline = ref.watch(appModeProvider) == AppMode.local;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          icon: const Icon(Icons.settings_rounded),
-          tooltip: 'Settings',
-          onPressed: () => context.push('/settings'),
-        ),
-        if (!isOffline)
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            tooltip: 'Sign Out',
-            onPressed: () async {
-              await ref.read(sessionProvider.notifier).logout();
-              ref.read(appModeProvider.notifier).state = AppMode.local;
-              if (context.mounted) context.go('/home');
-            },
-          ),
-      ],
     );
   }
 }

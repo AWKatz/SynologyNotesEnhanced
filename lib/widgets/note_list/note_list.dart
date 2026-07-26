@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 import '../../models/note.dart';
 import '../../models/notebook.dart';
 import '../../providers/app_mode_provider.dart'
-    show repositoryProvider, appModeProvider, AppMode;
+    show repositoryProvider, appModeProvider, AppMode, mobileTabIndexProvider;
 import '../../providers/note_color_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/notebooks_provider.dart';
@@ -372,6 +372,7 @@ class _FolderCard extends ConsumerWidget {
           ref.read(selectedNotebookIdProvider.notifier).state = notebook.id;
           ref.read(selectedNoteIdProvider.notifier).state = null;
           ref.read(noteFilterProvider.notifier).state = null;
+          ref.read(mobileTabIndexProvider.notifier).state = 1;
         },
         child: Stack(
           children: [
@@ -478,9 +479,11 @@ class _NoteGridState extends State<_NoteGrid> {
                   builder: (context, ref, _) => _NoteCard(
                     note: widget.notes[i],
                     isSelected: widget.notes[i].id == widget.selectedId,
-                    onTap: () => ref
-                        .read(selectedNoteIdProvider.notifier)
-                        .state = widget.notes[i].id,
+                    onTap: () {
+                      ref.read(selectedNoteIdProvider.notifier).state =
+                          widget.notes[i].id;
+                      ref.read(mobileTabIndexProvider.notifier).state = 2;
+                    },
                   ),
                 );
               },
@@ -803,6 +806,7 @@ Future<void> _createNote(BuildContext context, WidgetRef ref) async {
     ref.read(selectedNotebookIdProvider.notifier).state = notebookId;
     ref.read(noteFilterProvider.notifier).state = null;
     ref.read(selectedNoteIdProvider.notifier).state = note.id;
+    ref.read(mobileTabIndexProvider.notifier).state = 2;
     progress.close();
   } catch (e) {
     debugPrint('Create note failed: $e');
