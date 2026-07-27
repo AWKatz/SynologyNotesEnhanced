@@ -14,7 +14,13 @@ import '../../providers/tags_provider.dart';
 import '../common/app_toast.dart';
 
 class NoteList extends ConsumerWidget {
-  const NoteList({super.key});
+  /// Opens the sidebar drawer when set — only supplied by _TwoPanelLayout
+  /// (the drawer-based tablet layout), which has no AppBar of its own to
+  /// host a hamburger button; the icon lives in the header row instead so
+  /// it doesn't push "All Notes" down with a whole extra bar just for it.
+  final VoidCallback? onMenuPressed;
+
+  const NoteList({super.key, this.onMenuPressed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -34,7 +40,7 @@ class NoteList extends ConsumerWidget {
       color: cs.surface,
       child: Column(
         children: [
-          const _NoteListHeader(),
+          _NoteListHeader(onMenuPressed: onMenuPressed),
           if (showFolderStrip) const _FolderStrip(),
           Expanded(
             child: notesAsync.when(
@@ -94,7 +100,9 @@ class NewNoteFab extends ConsumerWidget {
 // ── Header: title, count, search, sort ───────────────────────────────────────
 
 class _NoteListHeader extends ConsumerWidget {
-  const _NoteListHeader();
+  final VoidCallback? onMenuPressed;
+
+  const _NoteListHeader({this.onMenuPressed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -126,6 +134,17 @@ class _NoteListHeader extends ConsumerWidget {
         children: [
           Row(
             children: [
+              if (onMenuPressed != null)
+                IconButton(
+                  icon: const Icon(Icons.menu_rounded),
+                  tooltip: 'Open menu',
+                  iconSize: 20,
+                  color: cs.onSurfaceVariant,
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.only(right: 8),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onMenuPressed,
+                ),
               if (showBack)
                 IconButton(
                   icon: const Icon(Icons.arrow_back_rounded),

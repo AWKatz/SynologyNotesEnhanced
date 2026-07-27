@@ -8,7 +8,8 @@ abstract class NotesRepository {
   Future<List<Notebook>> listNotebooks();
   Future<Notebook> createNotebook({required String title, String? shelfId});
   Future<void> deleteNotebook(String notebookId);
-  Future<Notebook> renameNotebook({required String notebookId, required String title});
+  Future<Notebook> renameNotebook(
+      {required String notebookId, required String title});
   Future<List<Note>> listNotes({String? notebookId});
   Future<Note> getNote(String noteId);
   Future<Note> createNote({
@@ -23,6 +24,7 @@ abstract class NotesRepository {
     String? content,
     List<String>? tagIds,
     bool? isStarred,
+    String? notebookId,
   });
   Future<void> deleteNote(String noteId);
   Future<List<Tag>> listTags();

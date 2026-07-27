@@ -8,7 +8,8 @@ import 'package:intl/intl.dart';
 import '../../core/crypto/note_crypto.dart';
 import '../../core/rich_html/rich_html_schema.dart';
 import '../../models/note.dart';
-import '../../providers/app_mode_provider.dart' show repositoryProvider;
+import '../../providers/app_mode_provider.dart'
+    show repositoryProvider, mobileTabIndexProvider;
 import '../../providers/note_color_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/notebooks_provider.dart';
@@ -104,15 +105,24 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// Display HTML with NoteStation's checkbox `<input type="image">` markers
   /// (which point at an unreachable relative gif) swapped for plain glyphs,
   /// and real image `<img ref="...">` tags resolved to an authenticated
-  /// display URL (see [_resolveImages]).
-  String get _renderHtml => _resolveImages(_displayHtml)
-      .replaceAll(
-          RegExp(r'<input[^>]*checkbox-checked[^>]*>', caseSensitive: false),
-          '&#9745; ')
-      .replaceAll(
-          RegExp(r'<input[^>]*syno-notestation-editor-checkbox[^>]*>',
-              caseSensitive: false),
-          '&#9744; ');
+  /// display URL (see [_resolveImages]). The checked glyph is tinted with
+  /// the user's chosen accent color, matching the checked-checkbox fill the
+  /// WebView rich editor applies via its own --accent (see
+  /// RichHtmlEditor.onLoadStop / editor.js's setAccentColor) — this
+  /// read-only glyph rendering path doesn't share that CSS, so without this
+  /// it would render in the plain body text color instead.
+  String get _renderHtml {
+    final accentHex =
+        '#${Theme.of(context).colorScheme.primary.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}';
+    return _resolveImages(_displayHtml)
+        .replaceAll(
+            RegExp(r'<input[^>]*checkbox-checked[^>]*>', caseSensitive: false),
+            '<span style="color:$accentHex">&#9745;</span> ')
+        .replaceAll(
+            RegExp(r'<input[^>]*syno-notestation-editor-checkbox[^>]*>',
+                caseSensitive: false),
+            '&#9744; ');
+  }
 
   /// Rewrites `<img ... ref="X" ... />` tags to carry a real, authenticated
   /// display URL in `src` instead of the saved placeholder — the image
@@ -142,11 +152,11 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     final linkId = widget.note.linkId;
     final ver = widget.note.ver;
 
-    final refsInHtml = RegExp(r'<img\b[^>]*\bref="([^"]*)"',
-            caseSensitive: false)
-        .allMatches(html)
-        .map((m) => m.group(1)!)
-        .toList();
+    final refsInHtml =
+        RegExp(r'<img\b[^>]*\bref="([^"]*)"', caseSensitive: false)
+            .allMatches(html)
+            .map((m) => m.group(1)!)
+            .toList();
 
     final shouldLog = refsInHtml.isNotEmpty &&
         _lastLoggedImageDebugKey != '${widget.note.id}@$ver@$tid';
@@ -214,9 +224,8 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// [_resolveImages]'s doc comment for why literal matches almost never
   /// happen and positional pairing is the fallback.
   Map<String, String> _refToAttachmentKey(List<String> refsInHtml) {
-    final claimedKeys = refsInHtml
-        .where((r) => widget.note.attachment.containsKey(r))
-        .toSet();
+    final claimedKeys =
+        refsInHtml.where((r) => widget.note.attachment.containsKey(r)).toSet();
     final unclaimedKeys = widget.note.attachment.keys
         .where((k) => !claimedKeys.contains(k))
         .toList();
@@ -247,12 +256,12 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     final client = ref.read(apiClientProvider);
     final linkId = widget.note.linkId;
     final ver = widget.note.ver;
-    final refsInHtml = RegExp(r'<img\b[^>]*\bref="([^"]*)"',
-            caseSensitive: false)
-        .allMatches(html)
-        .map((m) => m.group(1)!)
-        .toSet()
-        .toList();
+    final refsInHtml =
+        RegExp(r'<img\b[^>]*\bref="([^"]*)"', caseSensitive: false)
+            .allMatches(html)
+            .map((m) => m.group(1)!)
+            .toSet()
+            .toList();
     if (client == null || linkId == null || ver == null || refsInHtml.isEmpty) {
       return html;
     }
@@ -265,8 +274,9 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     final refToDataUri = <String, String>{};
     for (final r in refsInHtml) {
       final key = refToKey[r];
-      final meta =
-          key == null ? null : widget.note.attachment[key] as Map<String, dynamic>?;
+      final meta = key == null
+          ? null
+          : widget.note.attachment[key] as Map<String, dynamic>?;
       if (key == null || meta == null) continue;
       final fileName = meta['name'] as String? ?? key;
       final uri = client.noteImageUri(
@@ -319,10 +329,18 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     if (old.note.id != widget.note.id) _loadNote(widget.note);
   }
 
+  /// Mirrors [_editing] into [noteEditingProvider] so sibling widgets outside
+  /// this editor (the "new note" FAB, positioned over it in a Stack) know
+  /// when rich-edit mode is active without needing access to this State.
+  void _setEditing(bool value) {
+    _editing = value;
+    ref.read(noteEditingProvider.notifier).state = value;
+  }
+
   void _loadNote(Note note) {
     _titleController.text = note.title;
     _isDirty = false;
-    _editing = false;
+    _setEditing(false);
     _decryptedHtml = null;
     _pendingImages.clear();
     _richEditorHtml = null;
@@ -341,11 +359,11 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// for the common case (no images), so most notes toggle instantly.
   Future<void> _toggleEdit() async {
     if (_editing) {
-      setState(() => _editing = false);
+      setState(() => _setEditing(false));
       return;
     }
     if (!RegExp(r'<img\b[^>]*\bref=').hasMatch(_displayHtml)) {
-      setState(() => _editing = true);
+      setState(() => _setEditing(true));
       return;
     }
     setState(() => _preparingEditor = true);
@@ -353,9 +371,31 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     if (!mounted) return;
     setState(() {
       _richEditorHtml = resolved;
-      _editing = true;
+      _setEditing(true);
       _preparingEditor = false;
     });
+  }
+
+  /// Save-then-leave, mirroring Samsung Notes' back arrow — a no-op save
+  /// call when nothing's dirty is harmless (_saveNote early-returns).
+  /// Clearing the selection is enough to leave the editor on every layout
+  /// (three/two-panel editors show "Select a note" again); mobile also
+  /// needs its tab flipped back to Notes since that layout has no note
+  /// list visible alongside the editor to fall back to.
+  void _goBack() {
+    if (_editing && _isDirty) _saveNote();
+    ref.read(selectedNoteIdProvider.notifier).state = null;
+    ref.read(mobileTabIndexProvider.notifier).state = 1;
+  }
+
+  @override
+  void deactivate() {
+    // ref is no longer usable once dispose() begins (Riverpod asserts on
+    // it — confirmed via a real "Cannot use ref after the widget was
+    // disposed" crash here), so this cleanup has to happen in deactivate()
+    // instead, while the element is still attached.
+    ref.read(noteEditingProvider.notifier).state = false;
+    super.deactivate();
   }
 
   @override
@@ -412,7 +452,7 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
       if (mounted) {
         setState(() {
           _isDirty = false;
-          _editing = false;
+          _setEditing(false);
         });
         AppToast.success(context, 'Note saved');
       }
@@ -429,8 +469,8 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// on Save (see NoteStationService.uploadNoteAttachment's doc comment for
   /// why upload can't just happen right away).
   Future<void> _insertImage() async {
-    final picked =
-        await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
+    final picked = await FilePicker.platform
+        .pickFiles(type: FileType.image, withData: true);
     final file = picked?.files.single;
     if (file == null || file.bytes == null) return;
 
@@ -491,32 +531,52 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
       );
     }
 
+    final isRichEditing = _editing && _isEditable;
+
     return Container(
       color: cs.surface,
       child: Column(
         children: [
           colorStrip,
-          _EditorToolbar(
+          _EditorMeta(
             note: widget.note,
             isDirty: _isDirty,
             editing: _editing,
             canEdit: _isEditable,
-            isRichEditing: _editing && _isEditable,
             preparingEdit: _preparingEditor,
-            richEditorKey: _richEditorKey,
             onSave: _saveNote,
             onToggleEdit: _toggleEdit,
-            onInsertImage: _insertImage,
           ),
           Divider(height: 1, color: cs.outlineVariant),
-          _EditorMeta(note: widget.note),
-          Divider(height: 1, color: cs.outlineVariant),
           Expanded(
-            child: _editing && _isEditable
+            child: isRichEditing
                 ? _buildRichEditor(context, cs)
                 : _buildReadView(context, cs),
           ),
+          // Anchored above the keyboard (see _EditorToolbar's doc comment) —
+          // only relevant, so only shown, while actively rich-editing.
+          if (isRichEditing)
+            _EditorToolbar(
+              richEditorKey: _richEditorKey,
+              onInsertImage: _insertImage,
+            ),
         ],
+      ),
+    );
+  }
+
+  /// Leads the title row on both the rich-edit and read views — pressing it
+  /// saves (if dirty) and leaves the editor. See [_goBack].
+  Widget _titleBackButton(ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: IconButton(
+        icon: const Icon(Icons.arrow_back_rounded, size: 20),
+        tooltip: 'Save and go back',
+        onPressed: _goBack,
+        constraints: const BoxConstraints(),
+        padding: const EdgeInsets.all(4),
+        color: cs.onSurfaceVariant,
       ),
     );
   }
@@ -526,22 +586,31 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(32, 20, 32, 0),
-          child: TextField(
-            controller: _titleController,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: cs.onSurface,
+          padding: const EdgeInsets.fromLTRB(20, 8, 32, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _titleBackButton(cs),
+              Expanded(
+                child: TextField(
+                  controller: _titleController,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                      ),
+                  decoration: const InputDecoration(
+                    hintText: 'Note title',
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onChanged: (_) => setState(() => _isDirty = true),
                 ),
-            decoration: const InputDecoration(
-              hintText: 'Note title',
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              filled: false,
-              contentPadding: EdgeInsets.zero,
-            ),
-            onChanged: (_) => setState(() => _isDirty = true),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -550,6 +619,8 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
             initialHtml: _richEditorHtml ?? _resolveImages(_displayHtml),
             darkMode: Theme.of(context).brightness == Brightness.dark,
             accentColor: Theme.of(context).colorScheme.primary,
+            backgroundColor: cs.surface,
+            foregroundColor: cs.onSurface,
             onDirty: () {
               if (!_isDirty) setState(() => _isDirty = true);
             },
@@ -560,17 +631,29 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   }
 
   Widget _buildReadView(BuildContext context, ColorScheme cs) {
+    // Top padding matches _buildRichEditor's title row exactly (8, not the
+    // old 24) so toggling edit mode doesn't visibly shift the title/body
+    // text vertically — both then add the same 16px gap before body
+    // content (the SizedBox below vs. editor.css's #editor padding-top).
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(32, 24, 32, 32),
+      padding: const EdgeInsets.fromLTRB(20, 8, 32, 32),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            widget.note.title,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: cs.onSurface,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _titleBackButton(cs),
+              Expanded(
+                child: Text(
+                  widget.note.title,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                      ),
                 ),
+              ),
+            ],
           ),
           const SizedBox(height: 16),
           if (_displayHtml.trim().isEmpty)
@@ -1005,8 +1088,7 @@ class _TableSizePickerDialog extends StatefulWidget {
   const _TableSizePickerDialog();
 
   @override
-  State<_TableSizePickerDialog> createState() =>
-      _TableSizePickerDialogState();
+  State<_TableSizePickerDialog> createState() => _TableSizePickerDialogState();
 }
 
 class _TableSizePickerDialogState extends State<_TableSizePickerDialog> {
@@ -1019,10 +1101,8 @@ class _TableSizePickerDialogState extends State<_TableSizePickerDialog> {
   int _hoverCols = 1;
 
   void _updateFromLocalPosition(Offset local) {
-    final col =
-        (local.dx / (_cellSize + _cellGap)).ceil().clamp(1, _maxCols);
-    final row =
-        (local.dy / (_cellSize + _cellGap)).ceil().clamp(1, _maxRows);
+    final col = (local.dx / (_cellSize + _cellGap)).ceil().clamp(1, _maxCols);
+    final row = (local.dy / (_cellSize + _cellGap)).ceil().clamp(1, _maxRows);
     if (col != _hoverCols || row != _hoverRows) {
       setState(() {
         _hoverCols = col;
@@ -1087,28 +1167,19 @@ class _TableSizePickerDialogState extends State<_TableSizePickerDialog> {
   }
 }
 
+/// Rich-text formatting toolbar. Lives at the bottom of the editor Column
+/// (below the Expanded content), so with the ancestor Scaffold's default
+/// resizeToAvoidBottomInset it naturally lands right above the on-screen
+/// keyboard — the same anchored-above-keyboard placement Samsung Notes uses
+/// — rather than floating at the top of the panel like the old pill toolbar.
+/// Only rendered while actively rich-editing; the non-formatting actions
+/// (save/favorite/tag/encrypt/move) live in _EditorMeta's overflow menu.
 class _EditorToolbar extends ConsumerWidget {
-  final Note note;
-  final bool isDirty;
-  final bool editing;
-  final bool canEdit;
-  final bool isRichEditing;
-  final bool preparingEdit;
   final GlobalKey<RichHtmlEditorState> richEditorKey;
-  final VoidCallback onSave;
-  final VoidCallback onToggleEdit;
   final Future<void> Function() onInsertImage;
 
   const _EditorToolbar({
-    required this.note,
-    required this.isDirty,
-    required this.editing,
-    required this.canEdit,
-    required this.isRichEditing,
-    required this.preparingEdit,
     required this.richEditorKey,
-    required this.onSave,
-    required this.onToggleEdit,
     required this.onInsertImage,
   });
 
@@ -1123,350 +1194,250 @@ class _EditorToolbar extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = Theme.of(context).colorScheme;
-    final noteColor = ref.watch(noteColorsProvider)[note.id];
-    final noteColorLabel = noteColor == null
-        ? null
-        : ref.watch(colorLabelsProvider)[noteColor.toARGB32()];
-    return Container(
-      color: cs.surface,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Container(
-        height: 44,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: cs.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(22),
-        ),
-        child: Row(
-          children: [
-            // The formatting-button group can be wider than the toolbar at
-            // narrower editor-panel widths (many buttons, several dividers,
-            // two popup menus). Expanded + a horizontally-scrolling Row lets
-            // it scroll internally instead of overflowing the fixed-height
-            // pill — the trailing actions (save/edit/favorite/color/encrypt)
-            // stay fixed and fully visible on the right regardless.
-            if (editing && isRichEditing)
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _ToolGroupButton(
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerLow,
+        border: Border(top: BorderSide(color: cs.outlineVariant)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 44,
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Row(
+              children: [
+                _ToolGroupButton(
+                  icon: Icons.format_bold,
+                  tooltip: 'Text formatting',
+                  tools: [
+                    _DropdownToolButton(
                         icon: Icons.format_bold,
-                        tooltip: 'Text formatting',
-                        tools: [
-                          _DropdownToolButton(
-                              icon: Icons.format_bold,
-                              tooltip: 'Bold',
-                              onPressed: () => _rich?.bold()),
-                          _DropdownToolButton(
-                              icon: Icons.format_italic,
-                              tooltip: 'Italic',
-                              onPressed: () => _rich?.italic()),
-                          _DropdownToolButton(
-                              icon: Icons.format_underline,
-                              tooltip: 'Underline',
-                              onPressed: () => _rich?.underline()),
-                          _DropdownToolButton(
-                              icon: Icons.strikethrough_s_rounded,
-                              tooltip: 'Strikethrough',
-                              onPressed: () => _rich?.strikethrough()),
-                          _DropdownToolButton(
-                              icon: Icons.superscript_rounded,
-                              tooltip: 'Superscript',
-                              onPressed: () => _rich?.superscript()),
-                          _DropdownToolButton(
-                              icon: Icons.subscript_rounded,
-                              tooltip: 'Subscript',
-                              onPressed: () => _rich?.subscript()),
-                          _DropdownToolButton(
-                              icon: Icons.format_color_text_rounded,
-                              tooltip: 'Text color',
-                              onPressed: () => _pickAndApply(
-                                  context, (c) => _rich?.fontColor(c))),
-                          _DropdownToolButton(
-                              icon: Icons.format_color_fill_rounded,
-                              tooltip: 'Highlight',
-                              onPressed: () => _pickAndApply(
-                                  context, (c) => _rich?.highlight(c))),
-                          _DropdownToolButton(
-                              icon: Icons.format_size_rounded,
-                              tooltip: 'Text size',
-                              onPressed: () async {
-                                final px = await _promptFontSizePx(context);
-                                if (px != null) _rich?.fontSize(px);
-                              }),
-                        ],
-                      ),
-                      const _ToolbarDivider(),
-                      PopupMenuButton<int>(
-                        tooltip: 'Heading',
-                        icon: Icon(Icons.title_rounded,
-                            size: 18, color: cs.onSurfaceVariant),
-                        onSelected: (level) => level == 0
-                            ? _rich?.paragraph()
-                            : _rich?.heading(level),
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(value: 0, child: Text('Normal text')),
-                          PopupMenuItem(value: 1, child: Text('Heading 1')),
-                          PopupMenuItem(value: 2, child: Text('Heading 2')),
-                          PopupMenuItem(value: 3, child: Text('Heading 3')),
-                          PopupMenuItem(value: 4, child: Text('Heading 4')),
-                          PopupMenuItem(value: 5, child: Text('Heading 5')),
-                          PopupMenuItem(value: 6, child: Text('Heading 6')),
-                        ],
-                      ),
-                      PopupMenuButton<String>(
-                        tooltip: 'Align',
-                        icon: Icon(Icons.format_align_left_rounded,
-                            size: 18, color: cs.onSurfaceVariant),
-                        onSelected: (direction) => _rich?.align(direction),
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                              value: 'left',
-                              child: Icon(Icons.format_align_left_rounded)),
-                          PopupMenuItem(
-                              value: 'center',
-                              child: Icon(Icons.format_align_center_rounded)),
-                          PopupMenuItem(
-                              value: 'right',
-                              child: Icon(Icons.format_align_right_rounded)),
-                          PopupMenuItem(
-                              value: 'justify',
-                              child: Icon(Icons.format_align_justify_rounded)),
-                        ],
-                      ),
-                      const _ToolbarDivider(),
-                      PopupMenuButton<String>(
-                        tooltip: 'Table',
-                        icon: Icon(Icons.table_chart_outlined,
-                            size: 18, color: cs.onSurfaceVariant),
-                        onSelected: (action) async {
-                          switch (action) {
-                            case 'insert':
-                              final size = await showDialog<(int, int)>(
-                                context: context,
-                                builder: (context) =>
-                                    const _TableSizePickerDialog(),
-                              );
-                              if (size != null) {
-                                _rich?.insertTable(
-                                    rows: size.$1, cols: size.$2);
-                              }
-                            case 'row_above':
-                              _rich?.tableInsertRowAbove();
-                            case 'row_below':
-                              _rich?.tableInsertRowBelow();
-                            case 'col_left':
-                              _rich?.tableInsertColumnLeft();
-                            case 'col_right':
-                              _rich?.tableInsertColumnRight();
-                            case 'delete_row':
-                              _rich?.tableDeleteRow();
-                            case 'delete_col':
-                              _rich?.tableDeleteColumn();
-                            case 'delete_table':
-                              _rich?.tableDeleteTable();
+                        tooltip: 'Bold',
+                        onPressed: () => _rich?.bold()),
+                    _DropdownToolButton(
+                        icon: Icons.format_italic,
+                        tooltip: 'Italic',
+                        onPressed: () => _rich?.italic()),
+                    _DropdownToolButton(
+                        icon: Icons.format_underline,
+                        tooltip: 'Underline',
+                        onPressed: () => _rich?.underline()),
+                    _DropdownToolButton(
+                        icon: Icons.strikethrough_s_rounded,
+                        tooltip: 'Strikethrough',
+                        onPressed: () => _rich?.strikethrough()),
+                    _DropdownToolButton(
+                        icon: Icons.superscript_rounded,
+                        tooltip: 'Superscript',
+                        onPressed: () => _rich?.superscript()),
+                    _DropdownToolButton(
+                        icon: Icons.subscript_rounded,
+                        tooltip: 'Subscript',
+                        onPressed: () => _rich?.subscript()),
+                    _DropdownToolButton(
+                        icon: Icons.format_color_text_rounded,
+                        tooltip: 'Text color',
+                        onPressed: () =>
+                            _pickAndApply(context, (c) => _rich?.fontColor(c))),
+                    _DropdownToolButton(
+                        icon: Icons.format_color_fill_rounded,
+                        tooltip: 'Highlight',
+                        onPressed: () =>
+                            _pickAndApply(context, (c) => _rich?.highlight(c))),
+                    _DropdownToolButton(
+                        icon: Icons.format_size_rounded,
+                        tooltip: 'Text size',
+                        onPressed: () async {
+                          final px = await _promptFontSizePx(context);
+                          if (px != null) _rich?.fontSize(px);
+                        }),
+                  ],
+                ),
+                const _ToolbarDivider(),
+                PopupMenuButton<int>(
+                  tooltip: 'Heading',
+                  icon: Icon(Icons.title_rounded,
+                      size: 18, color: cs.onSurfaceVariant),
+                  onSelected: (level) =>
+                      level == 0 ? _rich?.paragraph() : _rich?.heading(level),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 0, child: Text('Normal text')),
+                    PopupMenuItem(value: 1, child: Text('Heading 1')),
+                    PopupMenuItem(value: 2, child: Text('Heading 2')),
+                    PopupMenuItem(value: 3, child: Text('Heading 3')),
+                    PopupMenuItem(value: 4, child: Text('Heading 4')),
+                    PopupMenuItem(value: 5, child: Text('Heading 5')),
+                    PopupMenuItem(value: 6, child: Text('Heading 6')),
+                  ],
+                ),
+                PopupMenuButton<String>(
+                  tooltip: 'Align',
+                  icon: Icon(Icons.format_align_left_rounded,
+                      size: 18, color: cs.onSurfaceVariant),
+                  onSelected: (direction) => _rich?.align(direction),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                        value: 'left',
+                        child: Icon(Icons.format_align_left_rounded)),
+                    PopupMenuItem(
+                        value: 'center',
+                        child: Icon(Icons.format_align_center_rounded)),
+                    PopupMenuItem(
+                        value: 'right',
+                        child: Icon(Icons.format_align_right_rounded)),
+                    PopupMenuItem(
+                        value: 'justify',
+                        child: Icon(Icons.format_align_justify_rounded)),
+                  ],
+                ),
+                const _ToolbarDivider(),
+                PopupMenuButton<String>(
+                  tooltip: 'Table',
+                  icon: Icon(Icons.table_chart_outlined,
+                      size: 18, color: cs.onSurfaceVariant),
+                  onSelected: (action) async {
+                    switch (action) {
+                      case 'insert':
+                        final size = await showDialog<(int, int)>(
+                          context: context,
+                          builder: (context) => const _TableSizePickerDialog(),
+                        );
+                        if (size != null) {
+                          _rich?.insertTable(rows: size.$1, cols: size.$2);
+                        }
+                      case 'row_above':
+                        _rich?.tableInsertRowAbove();
+                      case 'row_below':
+                        _rich?.tableInsertRowBelow();
+                      case 'col_left':
+                        _rich?.tableInsertColumnLeft();
+                      case 'col_right':
+                        _rich?.tableInsertColumnRight();
+                      case 'delete_row':
+                        _rich?.tableDeleteRow();
+                      case 'delete_col':
+                        _rich?.tableDeleteColumn();
+                      case 'delete_table':
+                        _rich?.tableDeleteTable();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'insert', child: Text('Insert table')),
+                    PopupMenuDivider(),
+                    PopupMenuItem(
+                        value: 'row_above', child: Text('Insert row above')),
+                    PopupMenuItem(
+                        value: 'row_below', child: Text('Insert row below')),
+                    PopupMenuItem(
+                        value: 'col_left', child: Text('Insert column left')),
+                    PopupMenuItem(
+                        value: 'col_right', child: Text('Insert column right')),
+                    PopupMenuDivider(),
+                    PopupMenuItem(
+                        value: 'delete_row', child: Text('Delete row')),
+                    PopupMenuItem(
+                        value: 'delete_col', child: Text('Delete column')),
+                    PopupMenuDivider(),
+                    PopupMenuItem(
+                        value: 'delete_table', child: Text('Delete table')),
+                  ],
+                ),
+                const _ToolbarDivider(),
+                _ToolGroupButton(
+                  icon: Icons.add_circle_outline_rounded,
+                  tooltip: 'Insert',
+                  tools: [
+                    _DropdownToolButton(
+                        icon: Icons.format_list_bulleted,
+                        tooltip: 'Bullet list',
+                        onPressed: () => _rich?.unorderedList()),
+                    _DropdownToolButton(
+                        icon: Icons.format_list_numbered_rounded,
+                        tooltip: 'Numbered list',
+                        onPressed: () => _rich?.orderedList()),
+                    _DropdownToolButton(
+                        icon: Icons.check_box_outlined,
+                        tooltip: 'Checkbox',
+                        onPressed: () => _rich?.insertCheckbox()),
+                    _DropdownToolButton(
+                        icon: Icons.horizontal_rule_rounded,
+                        tooltip: 'Divider',
+                        onPressed: () => _rich?.insertDivider()),
+                    _DropdownToolButton(
+                        icon: Icons.link_rounded,
+                        tooltip: 'Insert link',
+                        onPressed: () async {
+                          final url = await _promptLinkUrl(context);
+                          if (url != null && url.isNotEmpty) {
+                            _rich?.insertLink(url);
                           }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                              value: 'insert', child: Text('Insert table')),
-                          PopupMenuDivider(),
-                          PopupMenuItem(
-                              value: 'row_above',
-                              child: Text('Insert row above')),
-                          PopupMenuItem(
-                              value: 'row_below',
-                              child: Text('Insert row below')),
-                          PopupMenuItem(
-                              value: 'col_left',
-                              child: Text('Insert column left')),
-                          PopupMenuItem(
-                              value: 'col_right',
-                              child: Text('Insert column right')),
-                          PopupMenuDivider(),
-                          PopupMenuItem(
-                              value: 'delete_row', child: Text('Delete row')),
-                          PopupMenuItem(
-                              value: 'delete_col',
-                              child: Text('Delete column')),
-                          PopupMenuDivider(),
-                          PopupMenuItem(
-                              value: 'delete_table',
-                              child: Text('Delete table')),
-                        ],
-                      ),
-                      const _ToolbarDivider(),
-                      _ToolGroupButton(
-                        icon: Icons.add_circle_outline_rounded,
-                        tooltip: 'Insert',
-                        tools: [
-                          _DropdownToolButton(
-                              icon: Icons.format_list_bulleted,
-                              tooltip: 'Bullet list',
-                              onPressed: () => _rich?.unorderedList()),
-                          _DropdownToolButton(
-                              icon: Icons.format_list_numbered_rounded,
-                              tooltip: 'Numbered list',
-                              onPressed: () => _rich?.orderedList()),
-                          _DropdownToolButton(
-                              icon: Icons.check_box_outlined,
-                              tooltip: 'Checkbox',
-                              onPressed: () => _rich?.insertCheckbox()),
-                          _DropdownToolButton(
-                              icon: Icons.horizontal_rule_rounded,
-                              tooltip: 'Divider',
-                              onPressed: () => _rich?.insertDivider()),
-                          _DropdownToolButton(
-                              icon: Icons.link_rounded,
-                              tooltip: 'Insert link',
-                              onPressed: () async {
-                                final url = await _promptLinkUrl(context);
-                                if (url != null && url.isNotEmpty) {
-                                  _rich?.insertLink(url);
-                                }
-                              }),
-                          _DropdownToolButton(
-                              icon: Icons.image_outlined,
-                              tooltip: 'Insert image',
-                              onPressed: () => onInsertImage()),
-                        ],
-                      ),
-                      const _ToolbarDivider(),
-                      _ToolGroupButton(
-                        icon: Icons.crop_rounded,
-                        tooltip: 'Image (tap a picture first)',
-                        tools: [
-                          _DropdownToolButton(
-                              icon: Icons.format_align_left_rounded,
-                              tooltip: 'Placement: left',
-                              onPressed: () => _rich?.alignImage('left')),
-                          _DropdownToolButton(
-                              icon: Icons.format_align_center_rounded,
-                              tooltip: 'Placement: center',
-                              onPressed: () => _rich?.alignImage('center')),
-                          _DropdownToolButton(
-                              icon: Icons.format_align_right_rounded,
-                              tooltip: 'Placement: right',
-                              onPressed: () => _rich?.alignImage('right')),
-                          _DropdownToolButton(
-                              icon: Icons.photo_size_select_small_outlined,
-                              tooltip: 'Size: small',
-                              onPressed: () => _rich?.resizeImage('small')),
-                          _DropdownToolButton(
-                              icon: Icons.photo_size_select_large_outlined,
-                              tooltip: 'Size: medium',
-                              onPressed: () => _rich?.resizeImage('medium')),
-                          _DropdownToolButton(
-                              icon: Icons.photo_size_select_actual_outlined,
-                              tooltip: 'Size: large',
-                              onPressed: () => _rich?.resizeImage('large')),
-                          _DropdownToolButton(
-                              icon: Icons.crop_original_rounded,
-                              tooltip: 'Size: original',
-                              onPressed: () => _rich?.resizeImage('original')),
-                          _DropdownToolButton(
-                              icon: Icons.crop_square_rounded,
-                              tooltip: 'Crop: square',
-                              onPressed: () => _rich?.cropImage('square')),
-                          _DropdownToolButton(
-                              icon: Icons.crop_portrait_rounded,
-                              tooltip: 'Crop: portrait',
-                              onPressed: () => _rich?.cropImage('portrait')),
-                          _DropdownToolButton(
-                              icon: Icons.crop_landscape_rounded,
-                              tooltip: 'Crop: landscape',
-                              onPressed: () => _rich?.cropImage('landscape')),
-                          _DropdownToolButton(
-                              icon: Icons.crop_16_9_rounded,
-                              tooltip: 'Crop: wide',
-                              onPressed: () => _rich?.cropImage('wide')),
-                          _DropdownToolButton(
-                              icon: Icons.crop_free_rounded,
-                              tooltip: 'Crop: none',
-                              onPressed: () => _rich?.cropImage('none')),
-                        ],
-                      ),
-                    ],
-                  ),
+                        }),
+                    _DropdownToolButton(
+                        icon: Icons.image_outlined,
+                        tooltip: 'Insert image',
+                        onPressed: () => onInsertImage()),
+                  ],
                 ),
-              )
-            else
-              const Spacer(),
-            if (editing && isDirty)
-              TextButton.icon(
-                onPressed: onSave,
-                icon: const Icon(Icons.save_rounded, size: 16),
-                label: const Text('Save'),
-                style: TextButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                const _ToolbarDivider(),
+                _ToolGroupButton(
+                  icon: Icons.crop_rounded,
+                  tooltip: 'Image (tap a picture first)',
+                  tools: [
+                    _DropdownToolButton(
+                        icon: Icons.format_align_left_rounded,
+                        tooltip: 'Placement: left',
+                        onPressed: () => _rich?.alignImage('left')),
+                    _DropdownToolButton(
+                        icon: Icons.format_align_center_rounded,
+                        tooltip: 'Placement: center',
+                        onPressed: () => _rich?.alignImage('center')),
+                    _DropdownToolButton(
+                        icon: Icons.format_align_right_rounded,
+                        tooltip: 'Placement: right',
+                        onPressed: () => _rich?.alignImage('right')),
+                    _DropdownToolButton(
+                        icon: Icons.photo_size_select_small_outlined,
+                        tooltip: 'Size: small',
+                        onPressed: () => _rich?.resizeImage('small')),
+                    _DropdownToolButton(
+                        icon: Icons.photo_size_select_large_outlined,
+                        tooltip: 'Size: medium',
+                        onPressed: () => _rich?.resizeImage('medium')),
+                    _DropdownToolButton(
+                        icon: Icons.photo_size_select_actual_outlined,
+                        tooltip: 'Size: large',
+                        onPressed: () => _rich?.resizeImage('large')),
+                    _DropdownToolButton(
+                        icon: Icons.crop_original_rounded,
+                        tooltip: 'Size: original',
+                        onPressed: () => _rich?.resizeImage('original')),
+                    _DropdownToolButton(
+                        icon: Icons.crop_square_rounded,
+                        tooltip: 'Crop: square',
+                        onPressed: () => _rich?.cropImage('square')),
+                    _DropdownToolButton(
+                        icon: Icons.crop_portrait_rounded,
+                        tooltip: 'Crop: portrait',
+                        onPressed: () => _rich?.cropImage('portrait')),
+                    _DropdownToolButton(
+                        icon: Icons.crop_landscape_rounded,
+                        tooltip: 'Crop: landscape',
+                        onPressed: () => _rich?.cropImage('landscape')),
+                    _DropdownToolButton(
+                        icon: Icons.crop_16_9_rounded,
+                        tooltip: 'Crop: wide',
+                        onPressed: () => _rich?.cropImage('wide')),
+                    _DropdownToolButton(
+                        icon: Icons.crop_free_rounded,
+                        tooltip: 'Crop: none',
+                        onPressed: () => _rich?.cropImage('none')),
+                  ],
                 ),
-              ),
-            if (canEdit && preparingEdit)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            else if (canEdit)
-              _ToolbarButton(
-                icon: editing ? Icons.check_rounded : Icons.edit_rounded,
-                tooltip: editing ? 'Done' : 'Edit',
-                color: editing ? cs.primary : null,
-                onPressed: onToggleEdit,
-              ),
-            _ToolbarButton(
-              icon: note.isFavorite
-                  ? Icons.star_rounded
-                  : Icons.star_border_rounded,
-              tooltip: note.isFavorite ? 'Unfavorite' : 'Favourite',
-              color: note.isFavorite ? const Color(0xFFF59E0B) : null,
-              onPressed: () async {
-                final service = ref.read(noteStationServiceProvider);
-                if (service == null) return;
-                try {
-                  await service.updateNote(
-                    noteId: note.id,
-                    isStarred: !note.isFavorite,
-                  );
-                  syncAfterMutation(ref);
-                } catch (e) {
-                  // Previously only invalidated notesProvider/
-                  // selectedNoteProvider — not allNotesGlobalProvider, so
-                  // the sidebar's Favorites count silently lagged behind
-                  // an actual favorite/unfavorite until a manual sync.
-                  debugPrint('Update favorite failed: $e');
-                  if (context.mounted) {
-                    AppToast.error(context, 'Could not update favorite.');
-                  }
-                }
-              },
+              ],
             ),
-            _ToolbarButton(
-              icon: noteColor != null
-                  ? Icons.label_rounded
-                  : Icons.label_outline_rounded,
-              tooltip: noteColorLabel ?? 'Set Color',
-              color: noteColor,
-              onPressed: () => showColorPicker(context, ref,
-                  id: note.id, colorsProvider: noteColorsProvider),
-            ),
-            if (!note.isEncrypted)
-              _ToolbarButton(
-                icon: Icons.lock_outline_rounded,
-                tooltip: 'Encrypt Note',
-                onPressed: () => showDialog<void>(
-                  context: context,
-                  builder: (context) => _EncryptNoteDialog(note: note),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );
@@ -1475,7 +1446,22 @@ class _EditorToolbar extends ConsumerWidget {
 
 class _EditorMeta extends ConsumerWidget {
   final Note note;
-  const _EditorMeta({required this.note});
+  final bool isDirty;
+  final bool editing;
+  final bool canEdit;
+  final bool preparingEdit;
+  final VoidCallback? onSave;
+  final VoidCallback? onToggleEdit;
+
+  const _EditorMeta({
+    required this.note,
+    this.isDirty = false,
+    this.editing = false,
+    this.canEdit = false,
+    this.preparingEdit = false,
+    this.onSave,
+    this.onToggleEdit,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1487,6 +1473,10 @@ class _EditorMeta extends ConsumerWidget {
         ?.where((n) => n.id == note.notebookId)
         .firstOrNull;
     final updatedAt = note.updatedAt ?? note.createdAt;
+    final noteColor = ref.watch(noteColorsProvider)[note.id];
+    final noteColorLabel = noteColor == null
+        ? null
+        : ref.watch(colorLabelsProvider)[noteColor.toARGB32()];
 
     final resolvedTags = note.tags.map((id) => tagNames[id] ?? id).toList();
 
@@ -1495,75 +1485,239 @@ class _EditorMeta extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
       child: Row(
         children: [
-          Icon(Icons.folder_rounded,
-              size: 13, color: cs.primary.withValues(alpha: 0.7)),
-          const SizedBox(width: 4),
-          Text(
-            notebook?.name ?? 'Unknown Notebook',
-            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-          ),
-          const SizedBox(width: 16),
-          Icon(Icons.access_time_rounded, size: 13, color: cs.onSurfaceVariant),
-          const SizedBox(width: 4),
-          Text(
-            updatedAt != null
-                ? DateFormat('MMM d, yyyy · HH:mm').format(updatedAt)
-                : 'Unknown date',
-            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-          ),
-          const Spacer(),
-          if (resolvedTags.isNotEmpty)
-            Wrap(
-              spacing: 4,
-              children: resolvedTags
-                  .map((t) => Chip(
-                        label: Text(t),
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: EdgeInsets.zero,
-                        labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-                      ))
-                  .toList(),
+          // Notebook/date/tags share this Expanded so they truncate instead
+          // of forcing a RenderFlex overflow at narrow (phone) widths — the
+          // trailing icon cluster after it (tag/edit/overflow) is the set of
+          // actionable controls and must stay fully visible, never squeezed.
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(4),
+                    onTap: () => showDialog<void>(
+                      context: context,
+                      builder: (context) => _MoveNoteDialog(note: note),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 2, horizontal: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.folder_rounded,
+                              size: 13,
+                              color: cs.primary.withValues(alpha: 0.7)),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              notebook?.name ?? 'Unknown Notebook',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                              style: TextStyle(
+                                  fontSize: 12, color: cs.onSurfaceVariant),
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(Icons.unfold_more_rounded,
+                              size: 12, color: cs.onSurfaceVariant),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Icon(Icons.access_time_rounded,
+                    size: 13, color: cs.onSurfaceVariant),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    updatedAt != null
+                        ? DateFormat('MMM d, yyyy · HH:mm').format(updatedAt)
+                        : 'Unknown date',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  ),
+                ),
+                if (resolvedTags.isNotEmpty) ...[
+                  const SizedBox(width: 16),
+                  Flexible(
+                    child: Wrap(
+                      spacing: 4,
+                      children: resolvedTags
+                          .map((t) => Chip(
+                                label: Text(t),
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                                padding: EdgeInsets.zero,
+                                labelPadding:
+                                    const EdgeInsets.symmetric(horizontal: 6),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          IconButton(
-            icon: const Icon(Icons.local_offer_rounded, size: 14),
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (context) => _TagEditorDialog(note: note),
+          ),
+          // Transient — shown briefly while entering edit mode on a note
+          // with images (see _toggleEdit's image-resolution branch). Kept
+          // outside the More menu since it's a loading state, not an option.
+          if (canEdit && preparingEdit)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             ),
-            tooltip: 'Edit Tags',
+          // This slot always holds the one primary action for the current
+          // mode — Edit while just viewing, then Save/Done while editing
+          // (Save once something's actually changed, Done otherwise, so
+          // tapping it always does something sensible instead of Save
+          // silently no-op'ing on a clean note) — anchored at the far right
+          // with only the More menu beside it. Everything else (tags,
+          // favorite, color, encrypt, move) lives in that menu instead of
+          // competing for space in this row.
+          if (editing)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: OutlinedButton.icon(
+                onPressed: isDirty ? onSave : onToggleEdit,
+                icon: const Icon(Icons.check_rounded, size: 16),
+                label: Text(isDirty ? 'Save' : 'Done'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary),
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            )
+          else if (canEdit)
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: OutlinedButton.icon(
+                onPressed: onToggleEdit,
+                icon: const Icon(Icons.edit_rounded, size: 16),
+                label: const Text('Edit'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary),
+                  shape: const StadiumBorder(),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  minimumSize: const Size(0, 28),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  textStyle: const TextStyle(
+                      fontSize: 12, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          PopupMenuButton<String>(
+            tooltip: 'More',
+            icon: Icon(Icons.more_vert_rounded,
+                size: 16, color: cs.onSurfaceVariant),
             constraints: const BoxConstraints(),
             padding: const EdgeInsets.all(4),
-            color: cs.onSurfaceVariant,
+            itemBuilder: (context) => [
+              // Edit/Save/Done all live in the dedicated primary-action slot
+              // this menu sits beside — nothing to duplicate here for either.
+              const PopupMenuItem(
+                value: 'tags',
+                child: ListTile(
+                  leading: Icon(Icons.local_offer_rounded),
+                  title: Text('Edit Tags'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'favorite',
+                child: ListTile(
+                  leading: Icon(note.isFavorite
+                      ? Icons.star_rounded
+                      : Icons.star_border_rounded),
+                  title: Text(note.isFavorite ? 'Unfavorite' : 'Favourite'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'color',
+                child: ListTile(
+                  leading: Icon(noteColor != null
+                      ? Icons.label_rounded
+                      : Icons.label_outline_rounded),
+                  title: Text(noteColorLabel ?? 'Set Color'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              if (!note.isEncrypted)
+                const PopupMenuItem(
+                  value: 'encrypt',
+                  child: ListTile(
+                    leading: Icon(Icons.lock_outline_rounded),
+                    title: Text('Encrypt Note'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              const PopupMenuItem(
+                value: 'move',
+                child: ListTile(
+                  leading: Icon(Icons.drive_file_move_rounded),
+                  title: Text('Move to Notebook'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
+            onSelected: (value) async {
+              switch (value) {
+                case 'tags':
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => _TagEditorDialog(note: note),
+                  );
+                case 'favorite':
+                  final service = ref.read(noteStationServiceProvider);
+                  if (service == null) return;
+                  try {
+                    await service.updateNote(
+                      noteId: note.id,
+                      isStarred: !note.isFavorite,
+                    );
+                    syncAfterMutation(ref);
+                  } catch (e) {
+                    // Previously only invalidated notesProvider/
+                    // selectedNoteProvider — not allNotesGlobalProvider, so
+                    // the sidebar's Favorites count silently lagged behind
+                    // an actual favorite/unfavorite until a manual sync.
+                    debugPrint('Update favorite failed: $e');
+                    if (context.mounted) {
+                      AppToast.error(context, 'Could not update favorite.');
+                    }
+                  }
+                case 'color':
+                  showColorPicker(context, ref,
+                      id: note.id, colorsProvider: noteColorsProvider);
+                case 'encrypt':
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => _EncryptNoteDialog(note: note),
+                  );
+                case 'move':
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => _MoveNoteDialog(note: note),
+                  );
+              }
+            },
           ),
         ],
       ),
-    );
-  }
-}
-
-class _ToolbarButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback? onPressed;
-  final Color? color;
-
-  const _ToolbarButton({
-    required this.icon,
-    required this.tooltip,
-    this.onPressed,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return IconButton(
-      icon: Icon(icon, size: 18),
-      tooltip: tooltip,
-      onPressed: onPressed,
-      color: color ?? cs.onSurfaceVariant,
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      padding: const EdgeInsets.all(6),
     );
   }
 }
@@ -1811,6 +1965,96 @@ class _TagEditorDialogState extends ConsumerState<_TagEditorDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MoveNoteDialog extends ConsumerStatefulWidget {
+  final Note note;
+  const _MoveNoteDialog({required this.note});
+
+  @override
+  ConsumerState<_MoveNoteDialog> createState() => _MoveNoteDialogState();
+}
+
+class _MoveNoteDialogState extends ConsumerState<_MoveNoteDialog> {
+  late String? _selectedNotebookId = widget.note.notebookId;
+  bool _busy = false;
+
+  Future<void> _move() async {
+    final target = _selectedNotebookId;
+    if (target == null || target == widget.note.notebookId) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.updateNote(noteId: widget.note.id, notebookId: target);
+      syncAfterMutation(ref);
+      if (mounted) {
+        AppToast.success(context, 'Note moved');
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      debugPrint('Move note failed: $e');
+      if (mounted) AppToast.error(context, 'Could not move note.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
+
+    return AlertDialog(
+      title: const Text('Move to Notebook'),
+      content: SizedBox(
+        width: 320,
+        child: notebooks.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('No notebooks available.'),
+              )
+            : ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 320),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: notebooks
+                      .map((nb) => RadioListTile<String>(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(nb.name),
+                            value: nb.id,
+                            groupValue: _selectedNotebookId,
+                            onChanged: _busy
+                                ? null
+                                : (v) =>
+                                    setState(() => _selectedNotebookId = v),
+                          ))
+                      .toList(),
+                ),
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy || _selectedNotebookId == widget.note.notebookId
+              ? null
+              : _move,
+          child: _busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Move'),
         ),
       ],
     );

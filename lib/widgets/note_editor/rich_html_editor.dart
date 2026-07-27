@@ -16,6 +16,12 @@ class RichHtmlEditor extends StatefulWidget {
   final String initialHtml;
   final bool darkMode;
   final Color accentColor;
+
+  /// Exact app theme surface/onSurface colors — overrides editor.css's own
+  /// (only approximate) light/dark fallback colors, so there's no visible
+  /// color seam switching between the read view and this WebView.
+  final Color backgroundColor;
+  final Color foregroundColor;
   final VoidCallback? onDirty;
 
   const RichHtmlEditor({
@@ -23,6 +29,8 @@ class RichHtmlEditor extends StatefulWidget {
     required this.initialHtml,
     required this.darkMode,
     required this.accentColor,
+    required this.backgroundColor,
+    required this.foregroundColor,
     this.onDirty,
   });
 
@@ -54,26 +62,31 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
   Future<void> unorderedList() => _run('window.cmdUnorderedList()');
   Future<void> heading(int level) => _run('window.cmdHeading($level)');
   Future<void> paragraph() => _run('window.cmdParagraph()');
+
   /// [direction] is one of 'left'/'center'/'right'/'justify'.
   Future<void> align(String direction) =>
       _run('window.cmdAlign(${_jsString(direction)})');
   Future<void> insertLink(String url) =>
       _run('window.cmdInsertLink(${_jsString(url)})');
+
   /// [dataUri] is the live preview shown until the note is saved; [ref] must
   /// match the `ref` passed to the upload call that persists this image —
   /// see `_NoteEditorContentState._pendingImages`.
   Future<void> insertImage(String dataUri, String ref) =>
       _run('window.cmdInsertImage(${_jsString(dataUri)}, ${_jsString(ref)})');
+
   /// Aligns the last-tapped image (see editor.js's `activeImage`); a no-op
   /// if no image is currently selected. [direction] is one of
   /// 'left'/'center'/'right'/'justify'.
   Future<void> alignImage(String direction) =>
       _run('window.cmdAlignImage(${_jsString(direction)})');
+
   /// Resizes the last-tapped image to a preset width (height scaled to
   /// match its natural aspect ratio). [preset] is one of
   /// 'small'/'medium'/'large'/'original'.
   Future<void> resizeImage(String preset) =>
       _run('window.cmdResizeImage(${_jsString(preset)})');
+
   /// Crops the last-tapped image to a preset aspect ratio via
   /// object-fit/object-position (display-only — the uploaded file itself is
   /// untouched). [preset] is one of 'square'/'portrait'/'landscape'/'wide'/
@@ -87,8 +100,10 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
   Future<void> tableInsertRowAbove() => _run('window.cmdTableInsertRowAbove()');
   Future<void> tableInsertRowBelow() => _run('window.cmdTableInsertRowBelow()');
   Future<void> tableDeleteRow() => _run('window.cmdTableDeleteRow()');
-  Future<void> tableInsertColumnLeft() => _run('window.cmdTableInsertColumnLeft()');
-  Future<void> tableInsertColumnRight() => _run('window.cmdTableInsertColumnRight()');
+  Future<void> tableInsertColumnLeft() =>
+      _run('window.cmdTableInsertColumnLeft()');
+  Future<void> tableInsertColumnRight() =>
+      _run('window.cmdTableInsertColumnRight()');
   Future<void> tableDeleteColumn() => _run('window.cmdTableDeleteColumn()');
   Future<void> tableDeleteTable() => _run('window.cmdTableDeleteTable()');
   Future<void> fontColor(Color color) =>
@@ -97,6 +112,7 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
       _run('window.cmdHighlight(${_jsString(_toHex(color))})');
   Future<void> fontFamily(String name) =>
       _run('window.cmdFontFamily(${_jsString(name)})');
+
   /// [px] is a plain pixel value (e.g. 18), not a preset name.
   Future<void> fontSize(int px) => _run('window.cmdFontSize($px)');
 
@@ -152,6 +168,10 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
         await controller.evaluateJavascript(
             source:
                 'window.setAccentColor(${_jsString(_toHex(widget.accentColor))});');
+        await controller.evaluateJavascript(
+            source: 'window.setSurfaceColors('
+                '${_jsString(_toHex(widget.backgroundColor))}, '
+                '${_jsString(_toHex(widget.foregroundColor))});');
         await controller.evaluateJavascript(
             source: 'window.setContent(${_jsString(widget.initialHtml)});');
       },

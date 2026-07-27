@@ -24,7 +24,8 @@ class NasNotesRepository implements NotesRepository {
       _service.deleteNotebook(notebookId);
 
   @override
-  Future<Notebook> renameNotebook({required String notebookId, required String title}) =>
+  Future<Notebook> renameNotebook(
+          {required String notebookId, required String title}) =>
       _service.renameNotebook(notebookId: notebookId, title: title);
 
   @override
@@ -55,6 +56,7 @@ class NasNotesRepository implements NotesRepository {
     String? content,
     List<String>? tagIds,
     bool? isStarred,
+    String? notebookId,
   }) =>
       _service.updateNote(
         noteId: noteId,
@@ -62,6 +64,7 @@ class NasNotesRepository implements NotesRepository {
         content: content,
         tagIds: tagIds,
         isStarred: isStarred,
+        notebookId: notebookId,
       );
 
   @override
@@ -78,7 +81,8 @@ class NasNotesRepository implements NotesRepository {
       _service.search(keyword: keyword);
 
   @override
-  Future<Note> encryptNote({required Note note, required String password}) async {
+  Future<Note> encryptNote(
+      {required Note note, required String password}) async {
     final encrypted =
         await _service.encryptNoteAsCopy(plainNote: note, password: password);
     // The stock client leaves the plaintext original behind (see

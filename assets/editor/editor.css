@@ -1,7 +1,8 @@
-/* Matches the app's default light/dark surface colors closely enough to
-   avoid a visual seam; exact values are pushed in from Flutter at load via
-   window.setDarkMode(bool) since the WebView has no access to the app's
-   live theme otherwise. */
+/* Only fallbacks for the brief window before window.setSurfaceColors()
+   (see editor.js) lands with the app theme's real, exact surface/onSurface
+   colors — these approximations previously stayed in effect permanently,
+   which showed as a visible color seam switching between the read view and
+   this WebView. */
 :root {
   --bg: #fcfcfc;
   --fg: #1b1b1b;
@@ -18,10 +19,14 @@ html, body {
   color: var(--fg);
 }
 
+/* Left/right match the Flutter title row's own padding (fromLTRB(20, _, 32,
+   _) in note_editor.dart's _buildRichEditor) so text lines up exactly
+   instead of visibly shifting sideways when toggling edit mode — this used
+   to be a symmetric 24px that matched neither side. */
 #editor {
   min-height: 100vh;
   box-sizing: border-box;
-  padding: 16px 24px;
+  padding: 16px 32px 16px 20px;
   font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 15px;
   line-height: 1.6;
@@ -60,6 +65,16 @@ html, body {
 input.syno-notestation-editor-checkbox {
   -webkit-appearance: none;
   appearance: none;
+  /* type="image" inputs don't reliably shed native platform chrome from
+     just appearance:none the way type="checkbox"/"radio" do — confirmed on
+     Windows (WebView2/Chromium), where the OS accent color was showing
+     through as a purple fill+ring around our own background regardless of
+     the colors set below. forced-color-adjust opts fully out of any
+     browser/OS-level control theming; outline:none removes the
+     platform-native focus ring so it can't paint its own accent color atop
+     our checkmark either. */
+  forced-color-adjust: none;
+  outline: none;
   width: 15px;
   height: 15px;
   border: 1.5px solid currentColor;

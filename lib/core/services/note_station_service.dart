@@ -160,6 +160,7 @@ class NoteStationService {
     String? content,
     List<String>? tagIds,
     bool? isStarred,
+    String? notebookId,
   }) async {
     return _setNote(
       objectId: noteId,
@@ -167,6 +168,7 @@ class NoteStationService {
       content: content,
       tagIds: tagIds,
       isStarred: isStarred,
+      notebookId: notebookId,
     );
   }
 
@@ -188,6 +190,7 @@ class NoteStationService {
     String? content,
     List<String>? tagIds,
     bool? isStarred,
+    String? notebookId,
   }) async {
     Note? current;
     if (ver == null) {
@@ -208,6 +211,10 @@ class NoteStationService {
     }
     if (tagIds != null) params['tag'] = tagIds; // JSON array, not CSV
     if (isStarred != null) params['is_starred'] = isStarred;
+    // NOT independently verified against a real capture of Note.set — inferred
+    // by symmetry with Note.create/Note.copy, which both accept parent_id as a
+    // plain field on the same note object. See NoteStation API documentation.md.
+    if (notebookId != null) params['parent_id'] = notebookId;
 
     final data = await _client.call(
       api: 'SYNO.NoteStation.Note',
@@ -234,8 +241,10 @@ class NoteStationService {
   }
 
   /// Plain-text preview the way the web client derives `brief` from note HTML.
-  static String _briefFromHtml(String html) =>
-      html.replaceAll(RegExp(r'<[^>]+>'), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  static String _briefFromHtml(String html) => html
+      .replaceAll(RegExp(r'<[^>]+>'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 
   /// Uploads [fileBytes] as a new image attachment while saving [content]
   /// (which must already contain the `<img ref="$ref">` tag for this upload)
@@ -308,7 +317,10 @@ class NoteStationService {
       api: 'SYNO.NoteStation.Note',
       version: 3,
       method: 'delete',
-      params: {'object_id': [noteId], 'recycle': true},
+      params: {
+        'object_id': [noteId],
+        'recycle': true
+      },
     );
   }
 

@@ -365,6 +365,19 @@
     document.documentElement.style.setProperty('--accent', hex);
   };
 
+  // Overrides editor.css's --bg/--fg (only approximations of the app's
+  // real surface/onSurface colors — close, but not an exact match) with
+  // the Flutter theme's actual values, so there's no visible color seam
+  // when switching between the read view and this WebView. Set on body
+  // (not documentElement) so it wins over the body.dark stylesheet rule —
+  // custom properties declared directly on an element always beat ones
+  // only inherited from an ancestor, regardless of the ancestor rule's
+  // specificity.
+  window.setSurfaceColors = function (bgHex, fgHex) {
+    document.body.style.setProperty('--bg', bgHex);
+    document.body.style.setProperty('--fg', fgHex);
+  };
+
   // --- formatting commands ----------------------------------------------
   window.cmdBold = function () { withSelection(function () { document.execCommand('bold'); }); };
   window.cmdItalic = function () { withSelection(function () { document.execCommand('italic'); }); };

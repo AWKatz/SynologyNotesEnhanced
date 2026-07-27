@@ -151,15 +151,30 @@ class _SidebarHeader extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          IconButton(
-            icon: Icon(Icons.chevron_left_rounded,
-                size: 18, color: cs.onSurfaceVariant),
-            onPressed: () =>
-                ref.read(sidebarCollapsedProvider.notifier).state = true,
-            tooltip: 'Collapse sidebar',
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.all(6),
-          ),
+          // Collapsing to a rail is a _ThreePanelLayout-only concept (see
+          // home_screen.dart) — narrower layouts either show this sidebar in
+          // a Drawer (close it instead) or as its own full-width mobile tab
+          // (nothing to collapse to, so hide the button — previously it sat
+          // here doing nothing when tapped on those layouts).
+          if (MediaQuery.sizeOf(context).width >= 900)
+            IconButton(
+              icon: Icon(Icons.chevron_left_rounded,
+                  size: 18, color: cs.onSurfaceVariant),
+              onPressed: () =>
+                  ref.read(sidebarCollapsedProvider.notifier).state = true,
+              tooltip: 'Collapse sidebar',
+              constraints: const BoxConstraints(),
+              padding: const EdgeInsets.all(6),
+            )
+          else if (MediaQuery.sizeOf(context).width >= 600)
+            IconButton(
+              icon: Icon(Icons.chevron_left_rounded,
+                  size: 18, color: cs.onSurfaceVariant),
+              onPressed: () => Navigator.of(context).maybePop(),
+              tooltip: 'Close',
+              constraints: const BoxConstraints(),
+              padding: const EdgeInsets.all(6),
+            ),
         ],
       ),
     );

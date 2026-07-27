@@ -41,6 +41,11 @@ final allNotesGlobalProvider = FutureProvider<List<Note>>((ref) async {
 
 final selectedNoteIdProvider = StateProvider<String?>((ref) => null);
 
+/// True while the note editor is in rich-edit mode for the currently open
+/// note — set by [_NoteEditorContentState], watched by the "new note" FAB so
+/// it can hide itself instead of floating over the editor toolbar/content.
+final noteEditingProvider = StateProvider<bool>((ref) => false);
+
 final selectedNoteProvider = FutureProvider<Note?>((ref) async {
   final id = ref.watch(selectedNoteIdProvider);
   if (id == null) return null;

@@ -40,7 +40,8 @@ class LocalNotesRepository implements NotesRepository {
     }
   }
 
-  Future<void> _writeJsonList(String filename, List<Map<String, dynamic>> items) async {
+  Future<void> _writeJsonList(
+      String filename, List<Map<String, dynamic>> items) async {
     final file = await _file(filename);
     file.writeAsStringSync(jsonEncode({'items': items}));
   }
@@ -72,7 +73,8 @@ class LocalNotesRepository implements NotesRepository {
   }
 
   @override
-  Future<Notebook> createNotebook({required String title, String? shelfId}) async {
+  Future<Notebook> createNotebook(
+      {required String title, String? shelfId}) async {
     final items = await _readJsonList('notebooks.json');
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final nb = {
@@ -105,7 +107,8 @@ class LocalNotesRepository implements NotesRepository {
   }
 
   @override
-  Future<Notebook> renameNotebook({required String notebookId, required String title}) async {
+  Future<Notebook> renameNotebook(
+      {required String notebookId, required String title}) async {
     final items = await _readJsonList('notebooks.json');
     for (final item in items) {
       if ((item['notebook_id'] ?? item['id']) == notebookId) {
@@ -185,6 +188,7 @@ class LocalNotesRepository implements NotesRepository {
     String? content,
     List<String>? tagIds,
     bool? isStarred,
+    String? notebookId,
   }) async {
     final existing = await getNote(noteId);
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
@@ -194,8 +198,14 @@ class LocalNotesRepository implements NotesRepository {
       content: content,
       tags: tagIds,
       isFavorite: isStarred,
+      notebookId: notebookId,
       updatedAt: DateTime.fromMillisecondsSinceEpoch(now * 1000),
     );
+
+    if (notebookId != null && notebookId != existing.notebookId) {
+      await _incrementNoteCount(existing.notebookId, -1);
+      await _incrementNoteCount(notebookId, 1);
+    }
 
     final noteData = {
       'note_id': updated.id,
@@ -229,7 +239,8 @@ class LocalNotesRepository implements NotesRepository {
   }
 
   @override
-  Future<Note> encryptNote({required Note note, required String password}) async {
+  Future<Note> encryptNote(
+      {required Note note, required String password}) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final plainBrief = note.content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
     final updated = note.copyWith(

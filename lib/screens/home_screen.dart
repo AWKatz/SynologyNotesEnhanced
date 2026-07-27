@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/app_mode_provider.dart';
+import '../providers/notes_provider.dart';
 import '../providers/session_provider.dart';
 import '../widgets/sidebar/sidebar.dart';
 import '../widgets/note_list/note_list.dart' show NoteList, NewNoteFab;
@@ -107,20 +108,24 @@ class _ThreePanelLayout extends ConsumerWidget {
 }
 
 // The editor panel hosts the "new note" FAB (not the note list panel) so it
-// never floats on top of note cards a user is trying to scroll through.
-class _EditorPanel extends StatelessWidget {
+// never floats on top of note cards a user is trying to scroll through. It
+// hides itself while a note is actively being edited (noteEditingProvider)
+// so it doesn't obstruct the editor toolbar/content instead.
+class _EditorPanel extends ConsumerWidget {
   const _EditorPanel();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final editing = ref.watch(noteEditingProvider);
     return Stack(
       children: [
         const NoteEditor(),
-        Positioned(
-          right: 16,
-          bottom: 16,
-          child: NewNoteFab(),
-        ),
+        if (!editing)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: NewNoteFab(),
+          ),
       ],
     );
   }
@@ -151,7 +156,9 @@ class _CollapsedRail extends ConsumerWidget {
           // rather than deleting it, so restoring it later is a one-line
           // revert. Keep in sync with _SidebarHeader in sidebar.dart.
           Tooltip(
-            message: isOffline ? 'Offline Mode' : (session?.username ?? 'Not connected'),
+            message: isOffline
+                ? 'Offline Mode'
+                : (session?.username ?? 'Not connected'),
             child: Image.asset(
               'assets/icons/app_icon.png',
               width: 32,
@@ -221,36 +228,40 @@ class _TwoPanelLayoutState extends ConsumerState<_TwoPanelLayout> {
       key: _scaffoldKey,
       backgroundColor: cs.surfaceContainerLowest,
       drawer: const SizedBox(width: 240, child: Drawer(child: AppSidebar())),
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.menu_rounded),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+      // No AppBar — the hamburger that used to live there now sits inline in
+      // NoteList's own header, to the left of "All Notes", instead of
+      // pushing it down the screen with a whole extra bar just for one
+      // icon. SafeArea replaces the top-inset handling the AppBar used to
+      // provide implicitly (bottom is left alone; nothing here needs it).
+      body: SafeArea(
+        bottom: false,
+        child: Row(
+          children: [
+            SizedBox(
+              width: 260,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: NoteList(
+                    onMenuPressed: () =>
+                        _scaffoldKey.currentState?.openDrawer(),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: const _EditorPanel(),
+                ),
+              ),
+            ),
+          ],
         ),
-        title: const Text('Synology Notes Enhanced'),
-      ),
-      body: Row(
-        children: [
-          SizedBox(
-            width: 260,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: const NoteList(),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: const _EditorPanel(),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -264,40 +275,55 @@ class _MobileLayout extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tab = ref.watch(mobileTabIndexProvider);
+    // No app title bar, to give notes maximum vertical space. While a note
+    // is actively being edited, the tab bar hides too — otherwise it would
+    // sit sandwiched between the formatting toolbar and the keyboard (the
+    // keyboard pushes the whole Scaffold, including bottomNavigationBar, up
+    // with it), which wastes space and doesn't match the single anchored
+    // toolbar Samsung Notes shows while editing.
+    final editingNote = ref.watch(noteEditingProvider);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Synology Notes Enhanced'),
+      // With no AppBar, nothing else accounts for the status bar inset
+      // (AppBar used to do this implicitly) — without this, headers like
+      // NoteList's "All Notes" or the editor's meta row render underneath
+      // the system status bar. bottom is left to Scaffold's own handling
+      // (NavigationBar / the keyboard-anchored toolbar), so it's not
+      // double-padded here.
+      body: SafeArea(
+        bottom: false,
+        child: IndexedStack(
+          index: tab,
+          children: const [
+            AppSidebar(),
+            NoteList(),
+            _EditorPanel(),
+          ],
+        ),
       ),
-      body: IndexedStack(
-        index: tab,
-        children: const [
-          AppSidebar(),
-          NoteList(),
-          _EditorPanel(),
-        ],
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (i) =>
-            ref.read(mobileTabIndexProvider.notifier).state = i,
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(Icons.folder_rounded),
-            label: 'Notebooks',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.notes_outlined),
-            selectedIcon: Icon(Icons.notes_rounded),
-            label: 'Notes',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.edit_outlined),
-            selectedIcon: Icon(Icons.edit_rounded),
-            label: 'Editor',
-          ),
-        ],
-      ),
+      bottomNavigationBar: editingNote
+          ? null
+          : NavigationBar(
+              selectedIndex: tab,
+              onDestinationSelected: (i) =>
+                  ref.read(mobileTabIndexProvider.notifier).state = i,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.folder_outlined),
+                  selectedIcon: Icon(Icons.folder_rounded),
+                  label: 'Notebooks',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.notes_outlined),
+                  selectedIcon: Icon(Icons.notes_rounded),
+                  label: 'Notes',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.edit_outlined),
+                  selectedIcon: Icon(Icons.edit_rounded),
+                  label: 'Editor',
+                ),
+              ],
+            ),
     );
   }
 }
