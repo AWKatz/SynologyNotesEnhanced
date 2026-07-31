@@ -1,4 +1,5 @@
 # Synology Notes Enhanced
+<img width="951" height="618" alt="Screenshot 2026-07-31 182826" src="https://github.com/user-attachments/assets/243881f8-6acd-4ab5-b99c-162f545e71b7" />
 
 A feature-rich, open-source alternative to Synology's **DS Notes** client for
 [Note Station](https://www.synology.com/en-global/dsm/feature/note_station) — built with
