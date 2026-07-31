@@ -3,6 +3,7 @@ import '../models/note.dart';
 import 'app_mode_provider.dart';
 import 'notebooks_provider.dart';
 import 'shelves_provider.dart';
+import 'smart_notebooks_provider.dart';
 import 'tags_provider.dart';
 
 /// Virtual, client-side-only nav views (Favorites / Locked notes) — not
@@ -22,6 +23,11 @@ final noteSortProvider = StateProvider<(NoteSortField, bool)>(
 final notesProvider = FutureProvider<List<Note>>((ref) async {
   final repo = ref.watch(repositoryProvider);
   if (repo == null) return [];
+  // A smart notebook computes its own note set server-side (see
+  // NoteStationService.listNotesInSmart) — takes priority over a plain
+  // notebook scope, same way a filter view already does below.
+  final smartId = ref.watch(selectedSmartNotebookIdProvider);
+  if (smartId != null) return repo.listNotesForSmart(smartId);
   // A filter view (Favorites/Locked) is global, like the reference
   // screenshots' nav items — ignore whatever notebook happens to be selected.
   final notebookId = ref.watch(noteFilterProvider) == null
@@ -89,6 +95,14 @@ final filteredNotesProvider = Provider<List<Note>>((ref) {
     if (notebookId != null) {
       notes = notes.where((n) => n.notebookId == notebookId).toList();
     }
+    // Same idea for a selected smart notebook: search() also has no smart
+    // scope, so narrow to the id set notesProvider already fetched
+    // server-side for it (see NoteStationService.listNotesInSmart).
+    if (ref.watch(selectedSmartNotebookIdProvider) != null) {
+      final smartNoteIds =
+          (ref.watch(notesProvider).valueOrNull ?? []).map((n) => n.id).toSet();
+      notes = notes.where((n) => smartNoteIds.contains(n.id)).toList();
+    }
   }
 
   // Note.list never returns per-note tags (only Note.get does) — fill them
@@ -106,6 +120,19 @@ final filteredNotesProvider = Provider<List<Note>>((ref) {
   } else if (noteFilter == NoteFilter.locked) {
     filtered = filtered.where((n) => n.isEncrypted).toList();
   }
+
+  // Tag mode in the folder strip (see note_list.dart's _FolderStrip) — same
+  // "widen then narrow" shape as favorites/locked above. Selecting a tag
+  // always clears selectedNotebookId (see the tap handlers), so notesProvider
+  // has already fetched unscoped (all notebooks) by the time this runs.
+  final selectedTagId = ref.watch(selectedTagIdProvider);
+  if (selectedTagId != null) {
+    filtered = filtered.where((n) => n.tags.contains(selectedTagId)).toList();
+  }
+
+  // Smart-notebook mode: notesProvider already fetched exactly the right
+  // notes server-side (see NoteStationService.listNotesInSmart) when
+  // selectedSmartNotebookIdProvider is set — nothing left to filter here.
 
   final (sortField, ascending) = ref.watch(noteSortProvider);
   filtered.sort((a, b) {

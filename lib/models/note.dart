@@ -1,4 +1,5 @@
 import '../core/crypto/note_crypto.dart';
+import 'note_acl.dart';
 
 class Note {
   final String id;
@@ -21,6 +22,7 @@ class Note {
   // Keyed by attachment ref → {md5,name,ext,width,height,size,...}. Used to
   // resolve a saved <img ref="..."> tag to a real downloadable URL.
   final Map<String, dynamic> attachment;
+  final NoteAcl acl;
 
   const Note({
     required this.id,
@@ -37,6 +39,7 @@ class Note {
     this.ver,
     this.linkId,
     this.attachment = const {},
+    this.acl = const NoteAcl(),
   });
 
   /// Never derived from `content` or `excerpt` for encrypted notes — those may
@@ -84,6 +87,7 @@ class Note {
       ver: json['ver'] as String?,
       linkId: json['link_id'] as String?,
       attachment: (json['attachment'] as Map<String, dynamic>?) ?? const {},
+      acl: NoteAcl.fromJson(json['acl'] as Map<String, dynamic>?),
     );
   }
 
@@ -115,6 +119,7 @@ class Note {
     String? ver,
     String? linkId,
     Map<String, dynamic>? attachment,
+    NoteAcl? acl,
   }) {
     return Note(
       id: id ?? this.id,
@@ -131,6 +136,7 @@ class Note {
       ver: ver ?? this.ver,
       linkId: linkId ?? this.linkId,
       attachment: attachment ?? this.attachment,
+      acl: acl ?? this.acl,
     );
   }
 

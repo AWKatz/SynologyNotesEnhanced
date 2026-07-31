@@ -8,6 +8,7 @@ import 'providers/theme_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/todos_screen.dart';
 import 'theme/app_theme.dart';
 
 // Bridges Riverpod auth state into a ChangeNotifier so GoRouter can use
@@ -127,6 +128,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home',
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/todos',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          opaque: false,
+          barrierColor: Colors.black54,
+          barrierDismissible: false,
+          child: const _PanelPage(
+            dismissible: true,
+            maxWidth: 480,
+            child: TodosScreen(),
+          ),
+          transitionsBuilder: _slideFromLeft,
+        ),
       ),
       GoRoute(
         path: '/settings',

@@ -3,7 +3,10 @@ import '../crypto/note_crypto.dart';
 import '../../models/note.dart';
 import '../../models/notebook.dart';
 import '../../models/shelf.dart';
+import '../../models/note_version.dart';
+import '../../models/smart_notebook.dart';
 import '../../models/tag.dart';
+import '../../models/todo.dart';
 
 /// High-level service wrapping all SYNO.NoteStation.* API calls.
 class NoteStationService {
@@ -109,7 +112,11 @@ class NoteStationService {
     return list.map((j) => Note.fromJson(j as Map<String, dynamic>)).toList();
   }
 
-  Future<Note> getNote(String noteId) async {
+  /// [ver] fetches a specific historical revision's content instead of the
+  /// current one — VERIFIED (`.docs/reference/Version restore*.har`): the
+  /// same `Note.get` call, just with an extra `ver` param set to one of
+  /// [listNoteVersions]'s `NoteVersion.ver` values.
+  Future<Note> getNote(String noteId, {String? ver}) async {
     // VERIFIED (Note.CRUD capture): Note.get is v3, takes only `object_id`
     // (content is returned by default — no include_* flags), and the note
     // object is returned DIRECTLY under `data` (not data.note).
@@ -117,7 +124,10 @@ class NoteStationService {
       api: 'SYNO.NoteStation.Note',
       version: 3,
       method: 'get',
-      params: {'object_id': noteId},
+      params: {
+        'object_id': noteId,
+        if (ver != null) 'ver': ver,
+      },
     );
     return Note.fromJson(data);
   }
@@ -362,6 +372,47 @@ class NoteStationService {
     return Note.fromJson(data);
   }
 
+  // ── Version history ──────────────────────────────────────────────────────────
+
+  /// VERIFIED: `object_id`, `limit`, `filter: {listable: true}`. Response
+  /// `versions[].version` (a sha — NOT named `ver` in the response, despite
+  /// being the exact value both `Note.get`'s `ver` param and
+  /// `Note.Version restore`'s `ver` param key on) is newest-last in the
+  /// capture's 3-version example.
+  Future<List<NoteVersion>> listNoteVersions(String noteId) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Note.Version',
+      version: 2,
+      method: 'list',
+      params: {
+        'object_id': noteId,
+        'limit': 100,
+        'filter': {'listable': true},
+      },
+    );
+    final list = data['versions'] as List<dynamic>? ?? [];
+    return list
+        .map((j) => NoteVersion.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Restores the note to [ver] IN PLACE — VERIFIED: this is a real content
+  /// mutation (not just a "preview"), the response comes back with
+  /// `commit_msg.action: "restore"` and a fresh `ver`/`mtime`, same shape as
+  /// a normal `Note.get`.
+  Future<Note> restoreNoteVersion({
+    required String noteId,
+    required String ver,
+  }) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Note.Version',
+      version: 2,
+      method: 'restore',
+      params: {'object_id': noteId, 'ver': ver},
+    );
+    return Note.fromJson(data);
+  }
+
   // ── Tags ────────────────────────────────────────────────────────────────────
 
   Future<List<Tag>> listTags() async {
@@ -403,5 +454,458 @@ class NoteStationService {
     );
     final list = data['notes'] as List<dynamic>? ?? [];
     return list.map((j) => Note.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  // ── Account info ────────────────────────────────────────────────────────────
+
+  /// VERIFIED (present in every capture's startup compound call, and stands
+  /// on its own fine outside a compound too): no params, returns
+  /// {allow_share, hash, is_admin, uid, username, version}. Needed for
+  /// Smart-notebook tag criteria, which encode tags as `"<name>@<uid>"`.
+  Future<({int uid, String username, bool isAdmin})> getInfo() async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Info',
+      version: 2,
+      method: 'get',
+    );
+    return (
+      uid: data['uid'] as int? ?? 0,
+      username: data['username'] as String? ?? '',
+      isAdmin: data['is_admin'] as bool? ?? false,
+    );
+  }
+
+  // ── Todo ────────────────────────────────────────────────────────────────────
+
+  /// VERIFIED (`.docs/reference/To Do list capture*.har`): v2,
+  /// `field.items:true` requests subtasks inline (always empty in every
+  /// capture so far — subtask creation itself was never captured).
+  /// [parentId] fetches only the subtasks of that parent — VERIFIED
+  /// (`.docs/reference/Substasks*.har`) shape (`filter.parent_id`), now
+  /// confirmed to actually return data once the parent has real subtasks
+  /// (earlier captures only ever probed this filter against a childless
+  /// task and got an empty result back).
+  Future<List<Todo>> listTodos({String? parentId}) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Todo',
+      version: 2,
+      method: 'list',
+      params: {
+        'field': {'items': true},
+        if (parentId != null) 'filter': {'parent_id': parentId},
+      },
+    );
+    final list = data['todos'] as List<dynamic>? ?? [];
+    return list.map((j) => Todo.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  /// VERIFIED: title-only, title+due_date, and title+parent_id (subtask —
+  /// `.docs/reference/Substasks*.har`) variants all captured. The created
+  /// to-do is returned directly under `data` (like Note.create).
+  Future<Todo> createTodo({
+    required String title,
+    DateTime? dueDate,
+    String? parentId,
+  }) async {
+    final params = <String, dynamic>{'title': title};
+    if (dueDate != null) {
+      params['due_date'] = dueDate.millisecondsSinceEpoch ~/ 1000;
+    }
+    if (parentId != null) params['parent_id'] = parentId;
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Todo',
+      version: 2,
+      method: 'create',
+      params: params,
+    );
+    return Todo.fromJson(data);
+  }
+
+  /// Applies any combination of field edits to an existing to-do.
+  /// VERIFIED: comment/priority/star/done were each captured as their own
+  /// independent `set` call, `object_id` as a JSON array. `title`/`due_date`
+  /// were only ever captured at CREATE time, never as a later edit — included
+  /// here by strong symmetry with the same generic multi-field object-update
+  /// shape (comparable to Note.set's inferred `parent_id`).
+  Future<void> updateTodo({
+    required String todoId,
+    String? title,
+    String? comment,
+    bool? done,
+    bool? star,
+    int? priority,
+    DateTime? dueDate,
+  }) async {
+    final params = <String, dynamic>{
+      'object_id': [todoId],
+    };
+    if (title != null) params['title'] = title;
+    if (comment != null) params['comment'] = comment;
+    if (done != null) params['done'] = done;
+    if (star != null) params['star'] = star;
+    if (priority != null) params['priority'] = priority;
+    if (dueDate != null) {
+      params['due_date'] = dueDate.millisecondsSinceEpoch ~/ 1000;
+    }
+    await _client.call(
+      api: 'SYNO.NoteStation.Todo',
+      version: 2,
+      method: 'set',
+      params: params,
+    );
+  }
+
+  /// VERIFIED (To Do list capture delete): unlike list/create/set (v2),
+  /// delete is v1. `object_id` is a JSON array.
+  Future<void> deleteTodo(String todoId) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Todo',
+      version: 1,
+      method: 'delete',
+      params: {
+        'object_id': [todoId],
+      },
+    );
+  }
+
+  // ── Smart notebooks ─────────────────────────────────────────────────────────
+
+  Future<List<SmartNotebook>> listSmartNotebooks() async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Smart',
+      version: 1,
+      method: 'list',
+    );
+    final list = data['smarts'] as List<dynamic>? ?? [];
+    return list
+        .map((j) => SmartNotebook.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// VERIFIED (`.docs/reference/Smart Notebook*.har`) — the "critical"
+  /// capture per the checklist, since it reveals nested/array param encoding:
+  /// `query.tag` is an array of `"<tagName>@<uid>"` strings (the tag's NAME,
+  /// not its id!), `query.parent_id` restricts to specific notebooks, both
+  /// arrays even for one value. `Smart.list` does NOT echo the query back
+  /// (see SmartCriteria's doc comment), so the returned [SmartNotebook]
+  /// carries [criteria] only in this app's own in-memory state.
+  Future<SmartNotebook> createSmartNotebook({
+    required String title,
+    required SmartCriteria criteria,
+    required int ownerUid,
+  }) async {
+    final query = <String, dynamic>{};
+    if (criteria.keyword != null && criteria.keyword!.isNotEmpty) {
+      query['keyword'] = criteria.keyword;
+    }
+    if (criteria.innerTitle != null && criteria.innerTitle!.isNotEmpty) {
+      query['title'] = criteria.innerTitle;
+    }
+    if (criteria.tagNames.isNotEmpty) {
+      query['tag'] =
+          criteria.tagNames.map((name) => '$name@$ownerUid').toList();
+      query['tag_operator'] = criteria.tagOperator;
+    }
+    if (criteria.notebookIds.isNotEmpty) {
+      query['parent_id'] = criteria.notebookIds;
+    }
+
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Smart',
+      version: 1,
+      method: 'create',
+      params: {
+        'title': title,
+        'query': query,
+        'commit_msg': {'device': 'desktop'},
+      },
+    );
+    return SmartNotebook(
+      id: data['object_id']?.toString() ?? '',
+      title: title,
+    );
+  }
+
+  /// Lists the notes matching a smart notebook's saved query — i.e. what
+  /// "opening" one actually does. VERIFIED (`.docs/reference/Create and Open
+  /// Smart Notebook*.har`): NOT a separate endpoint — the same `Note.list`
+  /// v3 call, scoped via two extra top-level params (`perm_from:"smart"`,
+  /// `smart_id`) instead of `filter.parent_id`. The capture's `filter`/
+  /// `field` shape differed slightly from a normal listNotes() call (no
+  /// `archive` key in filter; `field` empty rather than requesting
+  /// `link_id`/`commit_msg`) — mirrored exactly as captured rather than
+  /// reusing listNotes()'s shape, since that difference is unexplained and
+  /// might matter (e.g. a smart-sourced note missing `link_id` would break
+  /// image resolution if assumed present).
+  Future<List<Note>> listNotesInSmart({
+    required String smartId,
+    required int ownerUid,
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Note',
+      version: 3,
+      method: 'list',
+      params: {
+        'filter': {'recycle': false, 'owner': ownerUid},
+        'field': {},
+        'offset': offset,
+        'limit': limit,
+        'sort_by': 'title',
+        'sort_direction': 'desc',
+        'perm_from': 'smart',
+        'smart_id': smartId,
+      },
+    );
+    final list = data['notes'] as List<dynamic>? ?? [];
+    return list.map((j) => Note.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
+  // ── Sharing / Permissions ────────────────────────────────────────────────────
+
+  /// Public share link URL for [noteId]. VERIFIED (Note Sharing capture):
+  /// mode="public"; "private" mode is unconfirmed (never captured).
+  Future<String> getPublicShareLink(String noteId) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Shard.Link',
+      version: 1,
+      method: 'get',
+      params: {'object_id': noteId, 'mode': 'public'},
+    );
+    return data['url'] as String? ?? '';
+  }
+
+  /// Turns note-level sharing on/off as a whole — VERIFIED, always sent
+  /// alongside a Permission.Public/Permission.Group set in the capture (as
+  /// two separate sequential calls here; the capture batched them via a
+  /// SYNO.Entry.Request compound, but each entry in a compound is itself an
+  /// independent call, not a transaction, so issuing them one after another
+  /// has the same effect without needing a new compound-call code path).
+  Future<void> setSharingEnabled(String noteId, bool enabled) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission',
+      version: 1,
+      method: 'set',
+      params: {'object_id': noteId, 'enabled': enabled},
+    );
+  }
+
+  /// VERIFIED: "ro". "rw" was only directly captured on [setUserPermission],
+  /// not this endpoint specifically — but the wire shape (object_id + perm)
+  /// is identical across Public/Group/User, so "rw" here is inferred by
+  /// symmetry rather than independently confirmed.
+  Future<void> setPublicPermission(String noteId, String perm) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission.Public',
+      version: 1,
+      method: 'set',
+      params: {'object_id': noteId, 'perm': perm},
+    );
+  }
+
+  /// VERIFIED (Note Sharing capture, revoke pass): removes the public link
+  /// entirely rather than setting some "none" perm value.
+  Future<void> deletePublicPermission(String noteId) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission.Public',
+      version: 1,
+      method: 'delete',
+      params: {'object_id': noteId},
+    );
+  }
+
+  /// VERIFIED: shares with a DSM group ("administrators" in the capture),
+  /// perm "ro" directly captured here (see setPublicPermission's note — "rw"
+  /// is inferred by symmetry for this specific endpoint, confirmed on
+  /// [setUserPermission] instead).
+  Future<void> setGroupPermission({
+    required String noteId,
+    required String groupName,
+    required String perm,
+  }) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission.Group',
+      version: 1,
+      method: 'set',
+      params: {'object_id': noteId, 'groupname': groupName, 'perm': perm},
+    );
+  }
+
+  /// Shares with an individual DSM user. VERIFIED
+  /// (`.docs/reference/Share RW*.har`): `username` (not `groupname`), and
+  /// `perm: "rw"` confirmed working here (not just "ro") — the note's `acl`
+  /// came back with a new `dsm_user` entry afterward.
+  Future<void> setUserPermission({
+    required String noteId,
+    required String username,
+    required String perm,
+  }) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission.User',
+      version: 1,
+      method: 'set',
+      params: {'object_id': noteId, 'username': username, 'perm': perm},
+    );
+  }
+
+  /// Revokes a single user's share. VERIFIED (`.docs/reference/Revoke
+  /// Share*.har`): unlike [deletePublicPermission] (object_id only), this
+  /// needs BOTH `username` and `uid` — `uid` is sent as a BARE JSON NUMBER
+  /// (`"uid":1024`, not `"uid":"1024"`), even though it's the same value
+  /// that appears as a string map-key in `Note.acl`'s `dsm_user`
+  /// ([NoteUserShare.uid]) — [uid] here takes that string and parses it back
+  /// to an int for the wire. No equivalent capture exists yet for removing a
+  /// single GROUP's share.
+  Future<void> deleteUserPermission({
+    required String noteId,
+    required String username,
+    required String uid,
+  }) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission.User',
+      version: 1,
+      method: 'delete',
+      params: {
+        'object_id': noteId,
+        'username': username,
+        'uid': int.parse(uid),
+      },
+    );
+  }
+
+  /// Revokes a single group's share. UNVERIFIED — no capture of this
+  /// specific call exists yet. Built by symmetry with [deleteUserPermission]
+  /// (per Aaron's explicit go-ahead 2026-07-31, to be re-captured/corrected
+  /// if it doesn't actually work): mirrors [setGroupPermission]'s
+  /// `groupname` naming, plus a `gid` counterpart to `deleteUserPermission`'s
+  /// `uid` (also a bare JSON number, same reasoning) — using
+  /// [NoteGroupShare.groupId], the same numeric-looking key `Note.acl`'s
+  /// `dsm_group` map already carries. If this silently no-ops or errors on
+  /// a real NAS, the shape to double-check first is this `gid` param —
+  /// capture the real request and fix here.
+  Future<void> deleteGroupPermission({
+    required String noteId,
+    required String groupName,
+    required String gid,
+  }) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Permission.Group',
+      version: 1,
+      method: 'delete',
+      params: {
+        'object_id': noteId,
+        'groupname': groupName,
+        'gid': int.parse(gid),
+      },
+    );
+  }
+
+  /// Autocomplete search over DSM users/groups for sharing. VERIFIED: returns
+  /// {name, type: "user"|"group"} — feeds either [setUserPermission] or
+  /// [setGroupPermission] depending on which type was picked.
+  Future<List<({String name, String type})>> searchSharePriv(
+      String query) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Share.Priv',
+      version: 2,
+      method: 'list',
+      params: {'query': query},
+    );
+    final list = data['list'] as List<dynamic>? ?? [];
+    return list.map((j) {
+      final m = j as Map<String, dynamic>;
+      return (
+        name: m['name'] as String? ?? '',
+        type: m['type'] as String? ?? 'user',
+      );
+    }).toList();
+  }
+
+  // ── Server-side .nsx export/import job ──────────────────────────────────────
+  //
+  // Distinct from this app's own local NsxCodec/NsxService (which parse/build
+  // the .nsx ZIP format directly, client-side). This is the real NAS's own
+  // async job: it writes/reads an .nsx file to/from a folder ON THE NAS
+  // itself — moving that file to/from this device still needs a separate
+  // FileStation upload/download, which is not yet built (no FileStation
+  // folder-browse capture exists), so callers here take a plain NAS path
+  // string rather than a folder-picker.
+
+  /// VERIFIED (`.docs/reference/Export nsx and Import*.har`): [notebookId]
+  /// null exports every notebook — the capture showed this sent as a literal
+  /// JSON `null`, not an omitted param, hence [explicitNull]. [destPath] is a
+  /// NAS-relative folder path (capture used "/Downloads").
+  Future<String> startNotebookExport({
+    String? notebookId,
+    required String destPath,
+    bool exportTodo = true,
+  }) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Export.Notebook',
+      version: 1,
+      method: 'start',
+      params: {
+        'object_id': notebookId ?? explicitNull,
+        'save_config': false,
+        'dest': destPath,
+        'export_todo': exportTodo,
+      },
+    );
+    return data['task_id'] as String? ?? '';
+  }
+
+  /// Polls the export job's progress. VERIFIED shape: no params; response
+  /// has `finish`(bool) and `data.current`/`data.total`.
+  Future<({bool finished, int current, int total})>
+      getNotebookExportStatus() async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Export.Notebook',
+      version: 1,
+      method: 'status',
+    );
+    final progress = data['data'] as Map<String, dynamic>? ?? {};
+    return (
+      finished: data['finish'] as bool? ?? false,
+      current: progress['current'] as int? ?? 0,
+      total: progress['total'] as int? ?? 0,
+    );
+  }
+
+  /// Starts an import job reading an `.nsx` already sitting in a NAS folder
+  /// (see the class-of-methods doc comment above — the file must already be
+  /// on the NAS; this doesn't upload one from the device). VERIFIED: `file`
+  /// is an array of {name, format:"ds", path}.
+  Future<String> startNotebookImport({
+    required String fileName,
+    required String nasPath,
+  }) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Import.Notebook',
+      version: 1,
+      method: 'start',
+      params: {
+        'file': [
+          {'name': fileName, 'format': 'ds', 'path': nasPath},
+        ],
+      },
+    );
+    return data['task_id'] as String? ?? '';
+  }
+
+  /// Polls the import job's progress — same shape as the export status.
+  Future<({bool finished, int current, int total})>
+      getNotebookImportStatus() async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Import.Notebook',
+      version: 1,
+      method: 'status',
+    );
+    final progress = data['data'] as Map<String, dynamic>? ?? {};
+    return (
+      finished: data['finish'] as bool? ?? false,
+      current: progress['current'] as int? ?? 0,
+      total: progress['total'] as int? ?? 0,
+    );
   }
 }

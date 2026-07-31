@@ -58,4 +58,27 @@ void main() {
     expect(nb.isArchived, isFalse);
     expect(nb.isShared, isFalse);
   });
+
+  test(
+      'Note.fromJson parses acl.dsm_user (verified against Share RW*.har)',
+      () {
+    final json = {
+      'object_id': 'N1',
+      'parent_id': 'NB1',
+      'title': 'T',
+      'acl': {
+        'enabled': true,
+        'dsm_user': {
+          '1024': {'inherit': false, 'name': 'admin', 'perm': 'rw'},
+        },
+      },
+    };
+
+    final note = Note.fromJson(json);
+    expect(note.acl.enabled, isTrue);
+    expect(note.acl.users, hasLength(1));
+    expect(note.acl.users.single.uid, '1024');
+    expect(note.acl.users.single.name, 'admin');
+    expect(note.acl.users.single.perm, 'rw');
+  });
 }

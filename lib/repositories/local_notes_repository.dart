@@ -3,9 +3,12 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../core/crypto/note_crypto.dart';
 import '../models/note.dart';
+import '../models/note_version.dart';
 import '../models/notebook.dart';
 import '../models/shelf.dart';
+import '../models/smart_notebook.dart';
 import '../models/tag.dart';
+import '../models/todo.dart';
 import 'notes_repository.dart';
 
 class LocalNotesRepository implements NotesRepository {
@@ -135,7 +138,12 @@ class LocalNotesRepository implements NotesRepository {
   }
 
   @override
-  Future<Note> getNote(String noteId) async {
+  Future<Note> getNote(String noteId, {String? ver}) async {
+    if (ver != null) {
+      // Local storage keeps no version history at all (see listNoteVersions
+      // below) — nothing to fetch a specific past revision of.
+      throw UnsupportedError('Version history requires NAS mode.');
+    }
     final dir = await _notesDir();
     final file = File('${dir.path}/$noteId.json');
     if (!file.existsSync()) throw Exception('Note $noteId not found');
@@ -427,4 +435,140 @@ class LocalNotesRepository implements NotesRepository {
     throw UnsupportedError(
         'Image attachments require NAS mode; offline notes cannot upload.');
   }
+
+  // ── Version history — local storage keeps no revision history at all.
+  @override
+  Future<List<NoteVersion>> listNoteVersions(String noteId) async => const [];
+
+  @override
+  Future<Note> restoreNoteVersion({
+    required String noteId,
+    required String ver,
+  }) =>
+      throw UnsupportedError('Version history requires NAS mode.');
+
+  // ── Todo / Smart notebooks / Sharing / server-side NSX job ───────────────
+  // All NAS-only concepts (the real DSM Todo panel, Smart-notebook queries
+  // against server data, DSM user/group ACLs, the NAS's own async export/
+  // import job) with no local equivalent. Reads return empty (offline mode
+  // simply has none, same as an empty tag list) rather than throwing, so any
+  // UI built against these doesn't need its own local-mode special case just
+  // to show "0 items"; writes throw, same as uploadNoteAttachment above —
+  // callers are expected to gate these behind NAS mode before ever reaching
+  // here.
+
+  @override
+  Future<List<Todo>> listTodos({String? parentId}) async => const [];
+
+  @override
+  Future<Todo> createTodo(
+          {required String title, DateTime? dueDate, String? parentId}) =>
+      throw UnsupportedError('To-do items require NAS mode.');
+
+  @override
+  Future<void> updateTodo({
+    required String todoId,
+    String? title,
+    String? comment,
+    bool? done,
+    bool? star,
+    int? priority,
+    DateTime? dueDate,
+  }) =>
+      throw UnsupportedError('To-do items require NAS mode.');
+
+  @override
+  Future<void> deleteTodo(String todoId) =>
+      throw UnsupportedError('To-do items require NAS mode.');
+
+  @override
+  Future<List<SmartNotebook>> listSmartNotebooks() async => const [];
+
+  @override
+  Future<SmartNotebook> createSmartNotebook({
+    required String title,
+    required SmartCriteria criteria,
+  }) =>
+      throw UnsupportedError('Smart notebooks require NAS mode.');
+
+  @override
+  Future<List<Note>> listNotesForSmart(String smartId) async => const [];
+
+  @override
+  Future<String> getPublicShareLink(String noteId) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> setSharingEnabled(String noteId, bool enabled) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> setPublicPermission(String noteId, String perm) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> deletePublicPermission(String noteId) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> setGroupPermission({
+    required String noteId,
+    required String groupName,
+    required String perm,
+  }) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> setUserPermission({
+    required String noteId,
+    required String username,
+    required String perm,
+  }) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> deleteUserPermission({
+    required String noteId,
+    required String username,
+    required String uid,
+  }) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<void> deleteGroupPermission({
+    required String noteId,
+    required String groupName,
+    required String gid,
+  }) =>
+      throw UnsupportedError('Sharing requires NAS mode.');
+
+  @override
+  Future<List<({String name, String type})>> searchSharePriv(
+          String query) async =>
+      const [];
+
+  @override
+  Future<String> startNotebookExport({
+    String? notebookId,
+    required String destPath,
+    bool exportTodo = true,
+  }) =>
+      throw UnsupportedError('NAS-side export requires NAS mode.');
+
+  @override
+  Future<({bool finished, int current, int total})>
+      getNotebookExportStatus() =>
+          throw UnsupportedError('NAS-side export requires NAS mode.');
+
+  @override
+  Future<String> startNotebookImport({
+    required String fileName,
+    required String nasPath,
+  }) =>
+      throw UnsupportedError('NAS-side import requires NAS mode.');
+
+  @override
+  Future<({bool finished, int current, int total})>
+      getNotebookImportStatus() =>
+          throw UnsupportedError('NAS-side import requires NAS mode.');
 }

@@ -13,6 +13,18 @@ final tagNameMapProvider = Provider<Map<String, String>>((ref) {
   return {for (final t in tags) t.id: t.name};
 });
 
+/// Mirrors selectedNotebookIdProvider/selectedNotebookProvider (see
+/// notebooks_provider.dart) — the folder strip's tag mode uses this the same
+/// way the notebook grid uses those.
+final selectedTagIdProvider = StateProvider<String?>((ref) => null);
+
+final selectedTagProvider = Provider<Tag?>((ref) {
+  final id = ref.watch(selectedTagIdProvider);
+  if (id == null) return null;
+  final tags = ref.watch(tagsProvider).valueOrNull ?? [];
+  return tags.where((t) => t.id == id).firstOrNull;
+});
+
 /// Inverts Tag.noteIds into noteId -> [tagId]. `Note.list` doesn't return
 /// per-note tags (only `Note.get` does), so this is how the note list/search
 /// learns which notes have which tags without fetching each one individually.

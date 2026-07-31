@@ -3,6 +3,17 @@ import 'package:http/http.dart' as http;
 import 'api_exception.dart';
 import 'trusted_http_client.dart';
 
+/// Sentinel for a param that must be sent as a literal JSON `null` rather
+/// than omitted — [SynologyApiClient.call]'s param encoder normally drops
+/// null values entirely, but `SYNO.NoteStation.Export.Notebook`'s
+/// `object_id: null` (meaning "export every notebook") was verified sending
+/// the literal word `null` on the wire, not omitting the key.
+class ExplicitNull {
+  const ExplicitNull();
+}
+
+const explicitNull = ExplicitNull();
+
 /// Low-level HTTP client for the Synology WebAPI.
 /// All calls go to /webapi/entry.cgi via POST.
 class SynologyApiClient {
@@ -275,6 +286,10 @@ class SynologyApiClient {
     final encoded = <String, String>{};
     params.forEach((key, value) {
       if (value == null) return;
+      if (value is ExplicitNull) {
+        encoded[key] = 'null';
+        return;
+      }
       if (value is num) {
         encoded[key] = value.toString();
       } else if (value is bool) {

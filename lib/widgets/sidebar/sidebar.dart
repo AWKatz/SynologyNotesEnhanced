@@ -10,11 +10,16 @@ import '../../providers/app_mode_provider.dart'
         sidebarCollapsedProvider,
         repositoryProvider,
         mobileTabIndexProvider;
+import '../../providers/folder_strip_provider.dart';
 import '../../providers/notebooks_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/note_color_provider.dart';
 import '../../providers/session_provider.dart';
 import '../../providers/shelves_provider.dart';
+import '../../providers/smart_notebooks_provider.dart'
+    show selectedSmartNotebookIdProvider, smartNotebooksProvider;
+import '../../providers/tags_provider.dart' show selectedTagIdProvider;
+import '../../providers/todos_provider.dart' show todosProvider;
 import '../common/app_toast.dart';
 
 class AppSidebar extends ConsumerWidget {
@@ -26,6 +31,8 @@ class AppSidebar extends ConsumerWidget {
     final notebooksAsync = ref.watch(notebooksProvider);
     final shelvesAsync = ref.watch(shelvesProvider);
     final selectedId = ref.watch(selectedNotebookIdProvider);
+    final selectedTagId = ref.watch(selectedTagIdProvider);
+    final selectedSmartId = ref.watch(selectedSmartNotebookIdProvider);
     final session = ref.watch(sessionProvider);
     final mode = ref.watch(appModeProvider);
 
@@ -42,9 +49,15 @@ class AppSidebar extends ConsumerWidget {
               displayName: displayName, isOffline: mode == AppMode.local),
           Divider(color: cs.outlineVariant, height: 1),
           const SizedBox(height: 4),
-          _AllNotesItem(isSelected: selectedId == null && filter == null),
+          _AllNotesItem(
+              isSelected:
+                  selectedId == null &&
+                      filter == null &&
+                      selectedTagId == null &&
+                      selectedSmartId == null),
           _FavoritesItem(isSelected: filter == NoteFilter.favorites),
           _LockedNotesItem(isSelected: filter == NoteFilter.locked),
+          const _TodoListsItem(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
             child: Row(
@@ -94,6 +107,8 @@ class AppSidebar extends ConsumerWidget {
               },
             ),
           ),
+          Divider(color: cs.outlineVariant, height: 1),
+          const _SmartNotebooksItem(),
           Divider(color: cs.outlineVariant, height: 1),
           _SidebarFooter(session: session, mode: mode),
         ],
@@ -300,6 +315,8 @@ class _AllNotesItem extends ConsumerWidget {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
         ref.read(noteFilterProvider.notifier).state = null;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
         ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
     );
@@ -329,6 +346,8 @@ class _FavoritesItem extends ConsumerWidget {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
         ref.read(noteFilterProvider.notifier).state = NoteFilter.favorites;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
         ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
     );
@@ -356,6 +375,68 @@ class _LockedNotesItem extends ConsumerWidget {
         ref.read(selectedNotebookIdProvider.notifier).state = null;
         ref.read(selectedNoteIdProvider.notifier).state = null;
         ref.read(noteFilterProvider.notifier).state = NoteFilter.locked;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
+      },
+    );
+  }
+}
+
+// ── To-Do Lists / Smart Notebooks (top-level nav shortcuts, mirroring the ────
+// real Note Station client's left rail — the note list/editor panels keep
+// this app's own Samsung Notes-style design; only this first-column nav
+// gains these two entries.) ──────────────────────────────────────────────────
+
+class _TodoListsItem extends ConsumerWidget {
+  const _TodoListsItem();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final activeCount = ref.watch(todosProvider).valueOrNull
+            ?.where((t) => !t.done).length ??
+        0;
+    return _SidebarTile(
+      icon: Icons.checklist_rounded,
+      label: 'To-Do Lists',
+      count: activeCount,
+      // Opens as its own panel (like Settings) rather than a persistent
+      // selection within this note-browsing nav, so it's never "selected".
+      isSelected: false,
+      onTap: () => context.push('/todos'),
+    );
+  }
+}
+
+class _SmartNotebooksItem extends ConsumerWidget {
+  const _SmartNotebooksItem();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(smartNotebooksProvider).valueOrNull?.length ?? 0;
+    final isSelected = ref.watch(folderStripModeProvider) ==
+            FolderStripMode.smart &&
+        ref.watch(selectedNotebookIdProvider) == null &&
+        ref.watch(selectedTagIdProvider) == null &&
+        ref.watch(selectedSmartNotebookIdProvider) == null &&
+        ref.watch(noteFilterProvider) == null;
+    return _SidebarTile(
+      icon: Icons.auto_awesome_rounded,
+      label: 'Smart Notebooks',
+      count: count,
+      isSelected: isSelected,
+      onTap: () {
+        // Lands on the "All Notes" root (same scope _AllNotesItem uses) but
+        // with the note list's folder strip switched to Smart mode and
+        // expanded, so the smart-notebook grid is immediately visible.
+        ref.read(selectedNotebookIdProvider.notifier).state = null;
+        ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(noteFilterProvider.notifier).state = null;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
+        ref.read(folderStripModeProvider.notifier).state =
+            FolderStripMode.smart;
+        ref.read(folderStripCollapsedProvider.notifier).state = false;
         ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
     );
@@ -446,6 +527,8 @@ class _NotebookItem extends ConsumerWidget {
       onTap: () {
         ref.read(selectedNotebookIdProvider.notifier).state = notebook.id;
         ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
         ref.read(mobileTabIndexProvider.notifier).state = 1;
       },
       trailing: PopupMenuButton<String>(

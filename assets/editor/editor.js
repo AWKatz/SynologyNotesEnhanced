@@ -274,6 +274,7 @@
 
   var dirtyTimer = null;
   editor.addEventListener('input', function () {
+    tryInlineMarkdownShorthand();
     sanitize(editor);
     if (dirtyTimer) clearTimeout(dirtyTimer);
     dirtyTimer = setTimeout(notifyDirty, 250);
@@ -282,7 +283,19 @@
   editor.addEventListener('paste', function (e) {
     e.preventDefault();
     var text = (e.clipboardData || window.clipboardData).getData('text/plain');
-    document.execCommand('insertText', false, text);
+    if (!text) return;
+    // Multi-line paste (a whole note/document) gets real block structure --
+    // one element per line, headings/lists/hr recognized. A single-line
+    // paste is almost always inline content dropped mid-sentence/mid-
+    // paragraph, so it must NOT be wrapped in its own <div> (that would
+    // split the surrounding line in two); it only gets inline markdown
+    // (bold/italic/code/etc.) applied and is inserted right at the caret.
+    var hasNewline = /\r|\n/.test(text);
+    var html = hasNewline
+      ? markdownToHtml(text)
+      : inlineMarkdown(escapeHtml(text));
+    document.execCommand('insertHTML', false, html);
+    afterEdit();
   });
 
   // Tab has no native contenteditable behavior worth keeping (default is
@@ -312,6 +325,247 @@
     }
     return null;
   }
+
+  // --- markdown shorthand -------------------------------------------------
+  // Typing (or pasting) common markdown syntax auto-converts to the
+  // equivalent rich element, matching the "smart formatting as you type"
+  // behavior of editors like Notion/Slack. Deliberately limited to
+  // constructs already in the confirmed-preserved schema (ALLOWED_TAGS/
+  // ALLOWED_STYLE_PROPS above) -- fenced code blocks and blockquotes aren't
+  // supported here yet because that HTML vocabulary hasn't been verified
+  // against a real NAS capture (see CAPTURE-CHECKLIST.md); wire those in
+  // once that capture lands.
+
+  function closestBlock(node) {
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    while (el && el !== editor) {
+      var tag = el.tagName && el.tagName.toLowerCase();
+      if (tag === 'div' || tag === 'p' || tag === 'li' || /^h[1-6]$/.test(tag || '')) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // Applied to already-escaped text (see escapeHtml) -- delimiter characters
+  // are untouched by escaping, so wrapping them in real tags afterward can't
+  // introduce any markup the user didn't ask for. Order matters: code spans
+  // first (so ** inside `code` is never touched), bold before single-* italic
+  // (so **x** doesn't also get read as *x* on its inner asterisk pair).
+  // Single-underscore italic (_x_) is deliberately NOT supported -- it
+  // misfires constantly on snake_case identifiers in a general notes app.
+  function inlineMarkdown(escaped) {
+    escaped = escaped.replace(/`([^`]+)`/g, function (m, p1) {
+      return '<span style="font-family: monospace; background-color: rgba(127,127,127,0.18)">' + p1 + '</span>';
+    });
+    escaped = escaped.replace(/~~([^~]+)~~/g, '<span style="text-decoration: line-through">$1</span>');
+    escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+    escaped = escaped.replace(/__([^_]+)__/g, '<b>$1</b>');
+    escaped = escaped.replace(/\*([^*]+)\*/g, '<i>$1</i>');
+    // http(s)/mailto only -- no javascript:/data: links from pasted text.
+    escaped = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)/g,
+      '<a href="$2">$1</a>');
+    return escaped;
+  }
+
+  // Converts a plain-text (possibly multi-line, markdown-flavored) paste
+  // into schema-safe HTML. Headings/lists/hr are recognized per-line; every
+  // other non-blank line becomes its own <div> (matching defaultParagraph
+  // Separator), consistent with how a plain typed line is stored.
+  function markdownToHtml(text) {
+    var lines = text.split(/\r\n|\r|\n/);
+    var parts = [];
+    var listType = null;
+    var listItems = [];
+
+    function flushList() {
+      if (!listType) return;
+      var items = listItems.map(function (li) { return '<li>' + inlineMarkdown(li) + '</li>'; }).join('');
+      parts.push('<' + listType + '>' + items + '</' + listType + '>');
+      listType = null;
+      listItems = [];
+    }
+
+    lines.forEach(function (line) {
+      var heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      var ul = /^[-*+]\s+(.*)$/.exec(line);
+      var ol = /^\d+\.\s+(.*)$/.exec(line);
+      var hr = /^(-{3,}|\*{3,}|_{3,})$/.test(line.trim());
+
+      if (heading) {
+        flushList();
+        var level = heading[1].length;
+        parts.push('<h' + level + '>' + inlineMarkdown(escapeHtml(heading[2])) + '</h' + level + '>');
+      } else if (hr) {
+        flushList();
+        parts.push('<hr/>');
+      } else if (ul) {
+        if (listType !== 'ul') flushList();
+        listType = 'ul';
+        listItems.push(escapeHtml(ul[1]));
+      } else if (ol) {
+        if (listType !== 'ol') flushList();
+        listType = 'ol';
+        listItems.push(escapeHtml(ol[1]));
+      } else if (line.trim() === '') {
+        flushList();
+      } else {
+        flushList();
+        parts.push('<div>' + inlineMarkdown(escapeHtml(line)) + '</div>');
+      }
+    });
+    flushList();
+    return parts.join('');
+  }
+
+  // Live-typing inline shorthand: checked on every 'input' event, but only
+  // ever acts when the caret sits at the very end of a plain Text node --
+  // i.e. right after the character just typed -- so it only ever reacts to
+  // what the user is actively typing, never to unrelated text elsewhere in
+  // the note. Each pattern is $-anchored for the same reason.
+  var INLINE_MD_PATTERNS = [
+    {
+      re: /`([^`]+)`$/,
+      make: function (m) {
+        var el = document.createElement('span');
+        el.style.fontFamily = 'monospace';
+        el.style.backgroundColor = 'rgba(127,127,127,0.18)';
+        el.textContent = m[1];
+        return el;
+      },
+    },
+    {
+      re: /~~([^~]+)~~$/,
+      make: function (m) {
+        var el = document.createElement('span');
+        el.style.textDecoration = 'line-through';
+        el.textContent = m[1];
+        return el;
+      },
+    },
+    {
+      re: /\*\*([^*]+)\*\*$/,
+      make: function (m) { var el = document.createElement('b'); el.textContent = m[1]; return el; },
+    },
+    {
+      re: /__([^_]+)__$/,
+      make: function (m) { var el = document.createElement('b'); el.textContent = m[1]; return el; },
+    },
+    // Tried after bold, so a just-completed **bold** never also matches here.
+    {
+      re: /\*([^*]+)\*$/,
+      make: function (m) { var el = document.createElement('i'); el.textContent = m[1]; return el; },
+    },
+    {
+      re: /\[([^\]]+)\]\((https?:\/\/[^)\s]+|mailto:[^)\s]+)\)$/,
+      make: function (m) {
+        var el = document.createElement('a');
+        el.setAttribute('href', m[2]);
+        el.textContent = m[1];
+        return el;
+      },
+    },
+  ];
+
+  function tryInlineMarkdownShorthand() {
+    var sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return;
+    var range = sel.getRangeAt(0);
+    var node = range.startContainer;
+    if (node.nodeType !== 3 || range.startOffset !== node.length) return;
+    if (!editor.contains(node)) return;
+
+    var text = node.textContent;
+    for (var i = 0; i < INLINE_MD_PATTERNS.length; i++) {
+      var m = INLINE_MD_PATTERNS[i].re.exec(text);
+      if (!m) continue;
+
+      var el = INLINE_MD_PATTERNS[i].make(m);
+      var replaceRange = document.createRange();
+      replaceRange.setStart(node, m.index);
+      replaceRange.setEnd(node, node.length);
+      replaceRange.deleteContents();
+      replaceRange.insertNode(el);
+
+      // Land the caret in a fresh empty text node right after, so typing
+      // continues as plain text instead of inside the new element.
+      var after = document.createTextNode('');
+      el.parentNode.insertBefore(after, el.nextSibling);
+      var caret = document.createRange();
+      caret.setStart(after, 0);
+      caret.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(caret);
+      return;
+    }
+  }
+
+  // Block-level shorthand: "# ", "## ", ... "###### ", "- "/"* ", "1. " at
+  // the very start of an otherwise-empty line convert the whole line to the
+  // matching block type, consuming the triggering space as the marker's own
+  // delimiter (not inserted as content) -- same convention most markdown-
+  // aware editors use.
+  editor.addEventListener('keydown', function (e) {
+    if (e.key !== ' ') return;
+    var sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return;
+    var range = sel.getRangeAt(0);
+    var block = closestBlock(range.startContainer);
+    if (!block) return;
+
+    var pre = document.createRange();
+    pre.setStart(block, 0);
+    pre.setEnd(range.startContainer, range.startOffset);
+    var textBeforeCaret = pre.toString();
+
+    var heading = /^(#{1,6})$/.exec(textBeforeCaret);
+    var ul = /^[-*]$/.test(textBeforeCaret);
+    var ol = /^\d+\.$/.test(textBeforeCaret);
+    if (!heading && !ul && !ol) return;
+
+    e.preventDefault();
+    var markerRange = document.createRange();
+    markerRange.setStart(block, 0);
+    markerRange.setEnd(range.startContainer, range.startOffset);
+    markerRange.deleteContents();
+
+    if (heading) {
+      document.execCommand('formatBlock', false, '<H' + heading[1].length + '>');
+    } else if (ul) {
+      document.execCommand('insertUnorderedList');
+    } else {
+      document.execCommand('insertOrderedList');
+    }
+    afterEdit();
+  });
+
+  // "---"/"***"/"___" alone on a line, followed by Enter, becomes a divider
+  // -- mirrors cmdInsertDivider's own <hr/>, just triggered by typing.
+  editor.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var sel = window.getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return;
+    var block = closestBlock(sel.getRangeAt(0).startContainer);
+    if (!block || !/^(-{3,}|\*{3,}|_{3,})$/.test(block.textContent.trim())) return;
+
+    e.preventDefault();
+    var hr = document.createElement('hr');
+    var newLine = document.createElement('div');
+    newLine.innerHTML = '<br>';
+    block.replaceWith(hr);
+    hr.parentNode.insertBefore(newLine, hr.nextSibling);
+
+    var r = document.createRange();
+    r.setStart(newLine, 0);
+    r.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(r);
+    afterEdit();
+  });
 
   // Tap-to-toggle checkboxes; tap-to-select for the image align/resize/crop
   // commands below (activeImage is whatever <img> was last clicked, cleared

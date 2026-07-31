@@ -1,8 +1,11 @@
 import '../core/services/note_station_service.dart';
 import '../models/note.dart';
+import '../models/note_version.dart';
 import '../models/notebook.dart';
 import '../models/shelf.dart';
+import '../models/smart_notebook.dart';
 import '../models/tag.dart';
+import '../models/todo.dart';
 import 'notes_repository.dart';
 
 class NasNotesRepository implements NotesRepository {
@@ -33,7 +36,8 @@ class NasNotesRepository implements NotesRepository {
       _service.listNotes(notebookId: notebookId);
 
   @override
-  Future<Note> getNote(String noteId) => _service.getNote(noteId);
+  Future<Note> getNote(String noteId, {String? ver}) =>
+      _service.getNote(noteId, ver: ver);
 
   @override
   Future<Note> createNote({
@@ -107,4 +111,155 @@ class NasNotesRepository implements NotesRepository {
         fileBytes: fileBytes,
         ref: ref,
       );
+
+  @override
+  Future<List<NoteVersion>> listNoteVersions(String noteId) =>
+      _service.listNoteVersions(noteId);
+
+  @override
+  Future<Note> restoreNoteVersion({
+    required String noteId,
+    required String ver,
+  }) =>
+      _service.restoreNoteVersion(noteId: noteId, ver: ver);
+
+  @override
+  Future<List<Todo>> listTodos({String? parentId}) =>
+      _service.listTodos(parentId: parentId);
+
+  @override
+  Future<Todo> createTodo(
+          {required String title, DateTime? dueDate, String? parentId}) =>
+      _service.createTodo(title: title, dueDate: dueDate, parentId: parentId);
+
+  @override
+  Future<void> updateTodo({
+    required String todoId,
+    String? title,
+    String? comment,
+    bool? done,
+    bool? star,
+    int? priority,
+    DateTime? dueDate,
+  }) =>
+      _service.updateTodo(
+        todoId: todoId,
+        title: title,
+        comment: comment,
+        done: done,
+        star: star,
+        priority: priority,
+        dueDate: dueDate,
+      );
+
+  @override
+  Future<void> deleteTodo(String todoId) => _service.deleteTodo(todoId);
+
+  @override
+  Future<List<SmartNotebook>> listSmartNotebooks() =>
+      _service.listSmartNotebooks();
+
+  @override
+  Future<SmartNotebook> createSmartNotebook({
+    required String title,
+    required SmartCriteria criteria,
+  }) async {
+    // The wire format encodes tags as "<name>@<uid>" — resolve the current
+    // user's uid once here so callers don't need to know about it.
+    final info = await _service.getInfo();
+    return _service.createSmartNotebook(
+      title: title,
+      criteria: criteria,
+      ownerUid: info.uid,
+    );
+  }
+
+  @override
+  Future<List<Note>> listNotesForSmart(String smartId) async {
+    final info = await _service.getInfo();
+    return _service.listNotesInSmart(smartId: smartId, ownerUid: info.uid);
+  }
+
+  @override
+  Future<String> getPublicShareLink(String noteId) =>
+      _service.getPublicShareLink(noteId);
+
+  @override
+  Future<void> setSharingEnabled(String noteId, bool enabled) =>
+      _service.setSharingEnabled(noteId, enabled);
+
+  @override
+  Future<void> setPublicPermission(String noteId, String perm) =>
+      _service.setPublicPermission(noteId, perm);
+
+  @override
+  Future<void> deletePublicPermission(String noteId) =>
+      _service.deletePublicPermission(noteId);
+
+  @override
+  Future<void> setGroupPermission({
+    required String noteId,
+    required String groupName,
+    required String perm,
+  }) =>
+      _service.setGroupPermission(
+          noteId: noteId, groupName: groupName, perm: perm);
+
+  @override
+  Future<void> setUserPermission({
+    required String noteId,
+    required String username,
+    required String perm,
+  }) =>
+      _service.setUserPermission(
+          noteId: noteId, username: username, perm: perm);
+
+  @override
+  Future<void> deleteUserPermission({
+    required String noteId,
+    required String username,
+    required String uid,
+  }) =>
+      _service.deleteUserPermission(
+          noteId: noteId, username: username, uid: uid);
+
+  @override
+  Future<void> deleteGroupPermission({
+    required String noteId,
+    required String groupName,
+    required String gid,
+  }) =>
+      _service.deleteGroupPermission(
+          noteId: noteId, groupName: groupName, gid: gid);
+
+  @override
+  Future<List<({String name, String type})>> searchSharePriv(String query) =>
+      _service.searchSharePriv(query);
+
+  @override
+  Future<String> startNotebookExport({
+    String? notebookId,
+    required String destPath,
+    bool exportTodo = true,
+  }) =>
+      _service.startNotebookExport(
+        notebookId: notebookId,
+        destPath: destPath,
+        exportTodo: exportTodo,
+      );
+
+  @override
+  Future<({bool finished, int current, int total})>
+      getNotebookExportStatus() => _service.getNotebookExportStatus();
+
+  @override
+  Future<String> startNotebookImport({
+    required String fileName,
+    required String nasPath,
+  }) =>
+      _service.startNotebookImport(fileName: fileName, nasPath: nasPath);
+
+  @override
+  Future<({bool finished, int current, int total})>
+      getNotebookImportStatus() => _service.getNotebookImportStatus();
 }

@@ -5,11 +5,15 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:intl/intl.dart';
 import '../../models/note.dart';
 import '../../models/notebook.dart';
+import '../../models/smart_notebook.dart';
+import '../../models/tag.dart';
 import '../../providers/app_mode_provider.dart'
     show repositoryProvider, appModeProvider, AppMode, mobileTabIndexProvider;
+import '../../providers/folder_strip_provider.dart';
 import '../../providers/note_color_provider.dart';
 import '../../providers/notes_provider.dart';
 import '../../providers/notebooks_provider.dart';
+import '../../providers/smart_notebooks_provider.dart';
 import '../../providers/tags_provider.dart';
 import '../common/app_toast.dart';
 
@@ -28,13 +32,18 @@ class NoteList extends ConsumerWidget {
     final notesAsync = ref.watch(notesProvider);
     final selectedId = ref.watch(selectedNoteIdProvider);
     final selectedNotebook = ref.watch(selectedNotebookProvider);
+    final selectedTag = ref.watch(selectedTagProvider);
+    final selectedSmart = ref.watch(selectedSmartNotebookProvider);
     final filter = ref.watch(noteFilterProvider);
-    // The folder strip is a quick-access shortcut into a notebook — only
-    // useful from the unscoped "All Notes" root, same as the reference
-    // screenshots' own Folders hub. Once a notebook or a filter view is
-    // active, the grid below is already scoped, so the strip would be
-    // redundant.
-    final showFolderStrip = filter == null && selectedNotebook == null;
+    // The folder strip is a quick-access shortcut into a notebook/tag/smart
+    // notebook — only useful from the unscoped "All Notes" root, same as the
+    // reference screenshots' own Folders hub. Once a notebook, tag, smart
+    // notebook, or filter view is active, the grid below is already scoped,
+    // so the strip would be redundant.
+    final showFolderStrip = filter == null &&
+        selectedNotebook == null &&
+        selectedTag == null &&
+        selectedSmart == null;
 
     return Container(
       color: cs.surface,
@@ -110,18 +119,27 @@ class _NoteListHeader extends ConsumerWidget {
     final count = ref.watch(filteredNotesProvider).length;
     final query = ref.watch(searchQueryProvider);
     final selectedNotebook = ref.watch(selectedNotebookProvider);
+    final selectedTag = ref.watch(selectedTagProvider);
+    final selectedSmart = ref.watch(selectedSmartNotebookProvider);
     final filter = ref.watch(noteFilterProvider);
     final (sortField, ascending) = ref.watch(noteSortProvider);
 
     final title = switch (filter) {
       NoteFilter.favorites => 'Favorites',
       NoteFilter.locked => 'Locked Notes',
-      null => selectedNotebook?.name ?? 'All Notes',
+      null => selectedSmart != null
+          ? selectedSmart.title
+          : selectedTag != null
+              ? selectedTag.name
+              : selectedNotebook?.name ?? 'All Notes',
     };
-    // Whenever we're scoped to a specific notebook or filter view, the
-    // folder strip (the only other way back to "All Notes") is hidden —
-    // so offer a way back right next to the label it replaced.
-    final showBack = filter != null || selectedNotebook != null;
+    // Whenever we're scoped to a specific notebook, tag, smart notebook, or
+    // filter view, the folder strip (the only other way back to "All Notes")
+    // is hidden — so offer a way back right next to the label it replaced.
+    final showBack = filter != null ||
+        selectedNotebook != null ||
+        selectedTag != null ||
+        selectedSmart != null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
@@ -157,6 +175,9 @@ class _NoteListHeader extends ConsumerWidget {
                   onPressed: () {
                     ref.read(selectedNotebookIdProvider.notifier).state = null;
                     ref.read(noteFilterProvider.notifier).state = null;
+                    ref.read(selectedTagIdProvider.notifier).state = null;
+                    ref.read(selectedSmartNotebookIdProvider.notifier).state =
+                        null;
                     ref.read(selectedNoteIdProvider.notifier).state = null;
                   },
                 ),
@@ -246,11 +267,10 @@ class _NoteListHeader extends ConsumerWidget {
 }
 
 // ── Folder strip: quick-access notebook cards above the "All Notes" grid ────
-
-/// Purely a UI preference (not persisted) — lets a user reclaim the folder
-/// strip's screen space for the note grid below it without losing the
-/// strip entirely, via the header's own collapse toggle.
-final _folderStripCollapsedProvider = StateProvider<bool>((ref) => false);
+//
+// Mode/collapsed state lives in providers/folder_strip_provider.dart (not
+// private here) so the sidebar's "Smart Notebooks" nav shortcut can switch
+// this strip to Smart mode and expand it.
 
 class _FolderStrip extends ConsumerStatefulWidget {
   const _FolderStrip();
@@ -284,10 +304,20 @@ class _FolderStripState extends ConsumerState<_FolderStrip> {
   @override
   Widget build(BuildContext context) {
     final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
-    if (notebooks.isEmpty) return const SizedBox.shrink();
+    final tags = ref.watch(tagsProvider).valueOrNull ?? [];
+    final smarts = ref.watch(smartNotebooksProvider).valueOrNull ?? [];
+    if (notebooks.isEmpty && tags.isEmpty && smarts.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     final cs = Theme.of(context).colorScheme;
-    final collapsed = ref.watch(_folderStripCollapsedProvider);
+    final collapsed = ref.watch(folderStripCollapsedProvider);
+    final mode = ref.watch(folderStripModeProvider);
+    final itemCount = switch (mode) {
+      FolderStripMode.folders => notebooks.length,
+      FolderStripMode.tags => tags.length,
+      FolderStripMode.smart => smarts.length,
+    };
 
     return Container(
       decoration: BoxDecoration(
@@ -300,7 +330,7 @@ class _FolderStripState extends ConsumerState<_FolderStrip> {
             color: Colors.transparent,
             child: InkWell(
               onTap: () => ref
-                  .read(_folderStripCollapsedProvider.notifier)
+                  .read(folderStripCollapsedProvider.notifier)
                   .state = !collapsed,
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
@@ -308,7 +338,11 @@ class _FolderStripState extends ConsumerState<_FolderStrip> {
                   children: [
                     Expanded(
                       child: Text(
-                        'FOLDERS',
+                        switch (mode) {
+                          FolderStripMode.folders => 'FOLDERS',
+                          FolderStripMode.tags => 'TAGS',
+                          FolderStripMode.smart => 'SMART',
+                        },
                         style: TextStyle(
                           color: cs.onSurfaceVariant,
                           fontSize: 11,
@@ -317,6 +351,19 @@ class _FolderStripState extends ConsumerState<_FolderStrip> {
                         ),
                       ),
                     ),
+                    if (mode == FolderStripMode.smart)
+                      IconButton(
+                        icon: const Icon(Icons.add_rounded, size: 16),
+                        tooltip: 'New smart notebook',
+                        onPressed: () =>
+                            _showCreateSmartNotebookDialog(context, ref),
+                        color: cs.onSurfaceVariant,
+                        constraints: const BoxConstraints(),
+                        padding: const EdgeInsets.all(4),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    const _StripModeToggle(),
+                    const SizedBox(width: 8),
                     Icon(
                       collapsed
                           ? Icons.expand_more_rounded
@@ -337,37 +384,102 @@ class _FolderStripState extends ConsumerState<_FolderStrip> {
                 ? const SizedBox(width: double.infinity)
                 : SizedBox(
                     height: _FolderStrip._stripHeight,
-                    // Same fix as the note grid below: desktop's default
-                    // ScrollBehavior excludes mouse from drag-to-scroll
-                    // devices, and this grid has no scrollbar of its own —
-                    // without both, a mouse has no way to scroll past the
-                    // first rows of notebooks.
-                    child: ScrollConfiguration(
-                      behavior: ScrollConfiguration.of(context).copyWith(
-                        dragDevices: {...PointerDeviceKind.values},
-                      ),
-                      child: Scrollbar(
-                        controller: _scrollController,
-                        child: GridView.builder(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: _FolderStrip._crossAxisCount,
-                            mainAxisSpacing: _FolderStrip._spacing,
-                            crossAxisSpacing: _FolderStrip._spacing,
-                            mainAxisExtent: _FolderStrip._rowHeight,
+                    child: itemCount == 0
+                        ? Center(
+                            child: Text(
+                              switch (mode) {
+                                FolderStripMode.folders => 'No folders yet',
+                                FolderStripMode.tags => 'No tags yet',
+                                FolderStripMode.smart => 'No smart notebooks yet',
+                              },
+                              style: TextStyle(
+                                  color: cs.onSurfaceVariant, fontSize: 12),
+                            ),
+                          )
+                        // Same fix as the note grid below: desktop's default
+                        // ScrollBehavior excludes mouse from drag-to-scroll
+                        // devices, and this grid has no scrollbar of its own —
+                        // without both, a mouse has no way to scroll past the
+                        // first rows.
+                        : ScrollConfiguration(
+                            behavior:
+                                ScrollConfiguration.of(context).copyWith(
+                              dragDevices: {...PointerDeviceKind.values},
+                            ),
+                            child: Scrollbar(
+                              controller: _scrollController,
+                              child: GridView.builder(
+                                controller: _scrollController,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 2, 16, 10),
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: _FolderStrip._crossAxisCount,
+                                  mainAxisSpacing: _FolderStrip._spacing,
+                                  crossAxisSpacing: _FolderStrip._spacing,
+                                  mainAxisExtent: _FolderStrip._rowHeight,
+                                ),
+                                itemCount: itemCount,
+                                itemBuilder: (context, i) => switch (mode) {
+                                  FolderStripMode.folders =>
+                                    _FolderCard(notebook: notebooks[i]),
+                                  FolderStripMode.tags => _TagCard(tag: tags[i]),
+                                  FolderStripMode.smart =>
+                                    _SmartNotebookCard(smart: smarts[i]),
+                                },
+                              ),
+                            ),
                           ),
-                          itemCount: notebooks.length,
-                          itemBuilder: (context, i) =>
-                              _FolderCard(notebook: notebooks[i]),
-                        ),
-                      ),
-                    ),
                   ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Small two-icon segmented control switching the strip between notebooks
+/// and tags. Nested inside the header's own InkWell (which toggles collapse)
+/// — Flutter's gesture arena resolves taps to whichever InkWell is innermost,
+/// so tapping a segment here never also fires the collapse toggle.
+class _StripModeToggle extends ConsumerWidget {
+  const _StripModeToggle();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    final mode = ref.watch(folderStripModeProvider);
+
+    Widget segment(FolderStripMode value, IconData icon, String tooltip) {
+      final active = mode == value;
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: () => ref.read(folderStripModeProvider.notifier).state =
+              value,
+          child: Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: active ? cs.surfaceContainerHigh : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(icon,
+                size: 14, color: active ? cs.onSurface : cs.onSurfaceVariant),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        segment(FolderStripMode.folders, Icons.folder_rounded, 'Folders'),
+        const SizedBox(width: 2),
+        segment(FolderStripMode.tags, Icons.sell_rounded, 'Tags'),
+        const SizedBox(width: 2),
+        segment(FolderStripMode.smart, Icons.auto_awesome_rounded, 'Smart'),
+      ],
     );
   }
 }
@@ -391,6 +503,8 @@ class _FolderCard extends ConsumerWidget {
           ref.read(selectedNotebookIdProvider.notifier).state = notebook.id;
           ref.read(selectedNoteIdProvider.notifier).state = null;
           ref.read(noteFilterProvider.notifier).state = null;
+          ref.read(selectedTagIdProvider.notifier).state = null;
+          ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
           ref.read(mobileTabIndexProvider.notifier).state = 1;
         },
         child: Stack(
@@ -439,6 +553,319 @@ class _FolderCard extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TagCard extends ConsumerWidget {
+  final Tag tag;
+  const _TagCard({required this.tag});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Material(
+      color: cs.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          ref.read(selectedTagIdProvider.notifier).state = tag.id;
+          ref.read(selectedNotebookIdProvider.notifier).state = null;
+          ref.read(selectedNoteIdProvider.notifier).state = null;
+          ref.read(noteFilterProvider.notifier).state = null;
+          ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
+          ref.read(mobileTabIndexProvider.notifier).state = 1;
+        },
+        child: Stack(
+          children: [
+            // Same corner-fold accent as _FolderCard, just a fixed color —
+            // tags (unlike notebooks) have no per-item color picker.
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                width: 26,
+                height: 11,
+                decoration: BoxDecoration(
+                  color: cs.secondary,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 8, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${tag.count}',
+                    style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    tag.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SmartNotebookCard extends ConsumerWidget {
+  final SmartNotebook smart;
+  const _SmartNotebookCard({required this.smart});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Material(
+      color: cs.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(12),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          ref.read(selectedSmartNotebookIdProvider.notifier).state = smart.id;
+          ref.read(selectedNotebookIdProvider.notifier).state = null;
+          ref.read(selectedTagIdProvider.notifier).state = null;
+          ref.read(selectedNoteIdProvider.notifier).state = null;
+          ref.read(noteFilterProvider.notifier).state = null;
+          ref.read(mobileTabIndexProvider.notifier).state = 1;
+        },
+        child: Stack(
+          children: [
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                width: 26,
+                height: 11,
+                decoration: BoxDecoration(
+                  color: cs.tertiary,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(8),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 10, 8, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.auto_awesome_rounded,
+                      size: 12, color: cs.onSurfaceVariant),
+                  const SizedBox(height: 2),
+                  Text(
+                    smart.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Create smart notebook dialog ─────────────────────────────────────────────
+
+void _showCreateSmartNotebookDialog(BuildContext context, WidgetRef ref) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => const _CreateSmartNotebookDialog(),
+  );
+}
+
+class _CreateSmartNotebookDialog extends ConsumerStatefulWidget {
+  const _CreateSmartNotebookDialog();
+
+  @override
+  ConsumerState<_CreateSmartNotebookDialog> createState() =>
+      _CreateSmartNotebookDialogState();
+}
+
+class _CreateSmartNotebookDialogState
+    extends ConsumerState<_CreateSmartNotebookDialog> {
+  final _titleController = TextEditingController();
+  final _keywordController = TextEditingController();
+  final _innerTitleController = TextEditingController();
+  final _selectedTagNames = <String>{};
+  String _tagOperator = 'and';
+  String? _notebookId;
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _keywordController.dispose();
+    _innerTitleController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await createSmartNotebook(
+        ref,
+        title: title,
+        criteria: SmartCriteria(
+          keyword: _keywordController.text.trim().isEmpty
+              ? null
+              : _keywordController.text.trim(),
+          innerTitle: _innerTitleController.text.trim().isEmpty
+              ? null
+              : _innerTitleController.text.trim(),
+          tagNames: _selectedTagNames.toList(),
+          tagOperator: _tagOperator,
+          notebookIds: _notebookId == null ? const [] : [_notebookId!],
+        ),
+      );
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      debugPrint('Create smart notebook failed: $e');
+      if (mounted) {
+        AppToast.error(context, 'Could not create the smart notebook.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tags = ref.watch(tagsProvider).valueOrNull ?? [];
+    final notebooks = ref.watch(notebooksProvider).valueOrNull ?? [];
+
+    return AlertDialog(
+      title: const Text('New Smart Notebook'),
+      content: SizedBox(
+        width: 360,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _titleController,
+                autofocus: true,
+                decoration: const InputDecoration(labelText: 'Name'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _keywordController,
+                decoration: const InputDecoration(
+                  labelText: 'Keyword (searches note content)',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _innerTitleController,
+                decoration: const InputDecoration(
+                  labelText: 'Title contains',
+                ),
+              ),
+              if (notebooks.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  initialValue: _notebookId,
+                  decoration:
+                      const InputDecoration(labelText: 'Restrict to notebook'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Any')),
+                    ...notebooks.map((nb) =>
+                        DropdownMenuItem(value: nb.id, child: Text(nb.name))),
+                  ],
+                  onChanged: (v) => setState(() => _notebookId = v),
+                ),
+              ],
+              if (tags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Tags',
+                      style: Theme.of(context).textTheme.labelMedium),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: tags.map((t) {
+                    final selected = _selectedTagNames.contains(t.name);
+                    return FilterChip(
+                      label: Text(t.name),
+                      selected: selected,
+                      onSelected: (v) => setState(() {
+                        if (v) {
+                          _selectedTagNames.add(t.name);
+                        } else {
+                          _selectedTagNames.remove(t.name);
+                        }
+                      }),
+                    );
+                  }).toList(),
+                ),
+                if (_selectedTagNames.length > 1) ...[
+                  const SizedBox(height: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'and', label: Text('Match all')),
+                      ButtonSegment(value: 'or', label: Text('Match any')),
+                    ],
+                    selected: {_tagOperator},
+                    onSelectionChanged: (s) =>
+                        setState(() => _tagOperator = s.first),
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _submit,
+          child: _busy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Create'),
+        ),
+      ],
     );
   }
 }

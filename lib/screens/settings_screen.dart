@@ -56,6 +56,11 @@ class SettingsScreen extends ConsumerWidget {
           ],
           _SectionHeader('Import / Export'),
           const _NsxImportExport(),
+          if (mode == AppMode.nas) ...[
+            const Divider(height: 32, indent: 20, endIndent: 20),
+            _SectionHeader('NAS Export / Import (server-side)'),
+            const _NasNsxJobSection(),
+          ],
           const Divider(height: 32, indent: 20, endIndent: 20),
           _SectionHeader('About'),
           const _AboutTile(),
@@ -583,6 +588,182 @@ class _NsxImportExportState extends ConsumerState<_NsxImportExport> {
           onTap: _busy ? null : _export,
         ),
       ],
+    );
+  }
+}
+
+// ── NAS-side (server) .nsx export/import job ────────────────────────────────
+//
+// Distinct from _NsxImportExport above (which parses/builds the .nsx ZIP
+// format directly, client-side, via NsxCodec/NsxService). This triggers the
+// real NAS's own async export/import job — SYNO.NoteStation.Export.Notebook/
+// Import.Notebook — which writes/reads a .nsx file to/from a folder ON THE
+// NAS ITSELF (see NoteStationService's matching doc comment). There is no
+// FileStation folder-browse capture yet, so this takes a plain NAS path
+// string rather than a real folder picker — the file still has to already
+// be on the NAS for import (e.g. placed there via DSM File Station
+// separately); this doesn't upload one from this device.
+
+class _NasNsxJobSection extends ConsumerStatefulWidget {
+  const _NasNsxJobSection();
+
+  @override
+  ConsumerState<_NasNsxJobSection> createState() => _NasNsxJobSectionState();
+}
+
+class _NasNsxJobSectionState extends ConsumerState<_NasNsxJobSection> {
+  final _destController = TextEditingController(text: '/Downloads');
+  final _importPathController = TextEditingController();
+  bool _exporting = false;
+  bool _importing = false;
+  String? _exportStatus;
+  String? _importStatus;
+
+  @override
+  void dispose() {
+    _destController.dispose();
+    _importPathController.dispose();
+    super.dispose();
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Future<void> _startExport() async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    final dest = _destController.text.trim();
+    if (dest.isEmpty) return;
+
+    setState(() {
+      _exporting = true;
+      _exportStatus = 'Starting…';
+    });
+    try {
+      await repo.startNotebookExport(destPath: dest);
+      while (mounted) {
+        await Future.delayed(const Duration(milliseconds: 1200));
+        final status = await repo.getNotebookExportStatus();
+        if (!mounted) return;
+        setState(() =>
+            _exportStatus = 'Exporting… ${status.current}/${status.total}');
+        if (status.finished) break;
+      }
+      if (mounted) _snack('Export finished — check $dest on the NAS.');
+    } catch (e) {
+      debugPrint('NAS export failed: $e');
+      if (mounted) _snack('Export failed.');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _startImport() async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    final path = _importPathController.text.trim();
+    if (path.isEmpty) return;
+    final fileName = path.split('/').last;
+
+    setState(() {
+      _importing = true;
+      _importStatus = 'Starting…';
+    });
+    try {
+      await repo.startNotebookImport(fileName: fileName, nasPath: path);
+      while (mounted) {
+        await Future.delayed(const Duration(milliseconds: 1200));
+        final status = await repo.getNotebookImportStatus();
+        if (!mounted) return;
+        setState(() =>
+            _importStatus = 'Importing… ${status.current}/${status.total}');
+        if (status.finished) break;
+      }
+      if (mounted) {
+        _snack('Import finished.');
+        syncAfterMutation(ref);
+      }
+    } catch (e) {
+      debugPrint('NAS import failed: $e');
+      if (mounted) _snack('Import failed.');
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Exports/imports a .nsx file on the NAS itself (not this device) '
+            '— for import, the file must already be on the NAS.',
+            style: TextStyle(
+                fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _destController,
+            enabled: !_exporting,
+            decoration: const InputDecoration(
+                labelText: 'Export destination folder (NAS path)'),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              FilledButton.tonal(
+                onPressed: _exporting ? null : _startExport,
+                child: _exporting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Start NAS export'),
+              ),
+              if (_exportStatus != null) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Text(_exportStatus!,
+                        style: const TextStyle(fontSize: 12))),
+              ],
+            ],
+          ),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _importPathController,
+            enabled: !_importing,
+            decoration: const InputDecoration(
+                labelText: 'Import file path (NAS path, e.g. /Downloads/x.nsx)'),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              FilledButton.tonal(
+                onPressed: _importing ? null : _startImport,
+                child: _importing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Start NAS import'),
+              ),
+              if (_importStatus != null) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Text(_importStatus!,
+                        style: const TextStyle(fontSize: 12))),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

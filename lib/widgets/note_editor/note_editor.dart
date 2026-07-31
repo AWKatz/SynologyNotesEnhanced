@@ -2,12 +2,15 @@ import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:intl/intl.dart';
 import '../../core/crypto/note_crypto.dart';
 import '../../core/rich_html/rich_html_schema.dart';
 import '../../models/note.dart';
+import '../../models/note_acl.dart';
+import '../../models/note_version.dart';
 import '../../providers/app_mode_provider.dart'
     show repositoryProvider, mobileTabIndexProvider;
 import '../../providers/note_color_provider.dart';
@@ -74,8 +77,10 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   bool _isDirty = false;
   bool _editing = false;
 
-  // Encrypted notes: decrypted HTML once the user unlocks (read-only).
+  // Encrypted notes: decrypted HTML once the user unlocks, plus the password
+  // that unlocked it (needed to re-encrypt on save — see _saveNote).
   String? _decryptedHtml;
+  String? _unlockPassword;
 
   // Rich editor's own image-resolved HTML (data: URIs — see
   // _resolveImagesForEditor), fetched once when entering edit mode. Null
@@ -314,8 +319,15 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// count as confirmed too (2026-07-25 HAR capture); anything still outside
   /// the vocabulary (code blocks, blockquotes, ...) stays read-only, same as
   /// before this editor existed — fidelity-first, per docs/RICH-TEXT.md.
+  ///
+  /// Encrypted notes gate on whether they're *currently* unlocked
+  /// (_decryptedHtml set), not just on _isEncrypted — the note's original
+  /// encrypted flag never changes, but once the user has entered the
+  /// password this session there's decrypted HTML to edit. _saveNote
+  /// re-encrypts with _unlockPassword before writing back.
   bool get _isEditable =>
-      !_isEncrypted && RichHtmlSchema.isRoundTrippable(_displayHtml);
+      (!_isEncrypted || _decryptedHtml != null) &&
+      RichHtmlSchema.isRoundTrippable(_displayHtml);
 
   @override
   void initState() {
@@ -342,6 +354,7 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     _isDirty = false;
     _setEditing(false);
     _decryptedHtml = null;
+    _unlockPassword = null;
     _pendingImages.clear();
     _richEditorHtml = null;
     if (!note.isEncrypted) {
@@ -414,11 +427,19 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
 
     try {
       // Data-loss guard: only write a body when the rich editor is actually
-      // mounted. Encrypted/unconfirmed-schema notes never get a content
-      // write here — they aren't reachable in an editing state.
+      // mounted. Unconfirmed-schema notes never get a content write here —
+      // they aren't reachable in an editing state. Encrypted notes ARE
+      // reachable once unlocked; getContent() returns plaintext HTML (the
+      // WebView was loaded with _decryptedHtml), so it's re-encrypted with
+      // _unlockPassword below before anything is sent over the wire —
+      // otherwise a save would silently turn the note back into plaintext
+      // server-side.
       String? content;
       if (_isEditable) {
         content = await _richEditorKey.currentState?.getContent();
+        if (content != null && _isEncrypted) {
+          content = NoteCrypto.encrypt(content, _unlockPassword!);
+        }
       }
 
       if (_pendingImages.isNotEmpty && content != null) {
@@ -469,6 +490,15 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// on Save (see NoteStationService.uploadNoteAttachment's doc comment for
   /// why upload can't just happen right away).
   Future<void> _insertImage() async {
+    if (_isEncrypted) {
+      // uploadNoteAttachment's multipart Note.set correlates the upload to a
+      // plaintext `<img ref="...">` tag inside `content` — never verified
+      // against an encrypted note (content would be the ciphertext blob, not
+      // HTML), so this stays unsupported rather than risk a malformed write.
+      AppToast.error(
+          context, 'Inserting images into an encrypted note isn\'t supported.');
+      return;
+    }
     final picked = await FilePicker.platform
         .pickFiles(type: FileType.image, withData: true);
     final file = picked?.files.single;
@@ -523,7 +553,10 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
             Expanded(
               child: _EncryptedNoteGate(
                 note: widget.note,
-                onUnlocked: (html) => setState(() => _decryptedHtml = html),
+                onUnlocked: (html, password) => setState(() {
+                  _decryptedHtml = html;
+                  _unlockPassword = password;
+                }),
               ),
             ),
           ],
@@ -719,7 +752,7 @@ class _RichReadOnlyBanner extends StatelessWidget {
 /// Password prompt + client-side decryption for an encrypted note.
 class _EncryptedNoteGate extends ConsumerStatefulWidget {
   final Note note;
-  final ValueChanged<String> onUnlocked;
+  final void Function(String html, String password) onUnlocked;
   const _EncryptedNoteGate({required this.note, required this.onUnlocked});
 
   @override
@@ -755,7 +788,7 @@ class _EncryptedNoteGateState extends ConsumerState<_EncryptedNoteGate> {
         }
       }
       final html = NoteCrypto.decrypt(content, password);
-      if (mounted) widget.onUnlocked(html);
+      if (mounted) widget.onUnlocked(html, password);
     } on WrongPasswordException {
       if (mounted) setState(() => _error = 'Incorrect password.');
     } catch (_) {
@@ -1673,6 +1706,34 @@ class _EditorMeta extends ConsumerWidget {
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
+              // NAS-only (Permission/Share.Priv/Shard.Link APIs), and not
+              // offered for encrypted notes — sharing ciphertext content has
+              // never been captured, so this stays out of scope rather than
+              // guess at the interaction.
+              if (ref.watch(noteStationServiceProvider) != null &&
+                  !note.isEncrypted)
+                const PopupMenuItem(
+                  value: 'share',
+                  child: ListTile(
+                    leading: Icon(Icons.share_rounded),
+                    title: Text('Share'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+              // NAS-only (Note.Version list/restore). Not offered for
+              // encrypted notes — a past revision's content comes back as a
+              // ciphertext blob with no verified way to preview/decrypt it
+              // here, so this stays out of scope rather than guess.
+              if (ref.watch(noteStationServiceProvider) != null &&
+                  !note.isEncrypted)
+                const PopupMenuItem(
+                  value: 'history',
+                  child: ListTile(
+                    leading: Icon(Icons.history_rounded),
+                    title: Text('Version History'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
             ],
             onSelected: (value) async {
               switch (value) {
@@ -1712,6 +1773,16 @@ class _EditorMeta extends ConsumerWidget {
                   showDialog<void>(
                     context: context,
                     builder: (context) => _MoveNoteDialog(note: note),
+                  );
+                case 'share':
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => _ShareNoteDialog(note: note),
+                  );
+                case 'history':
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) => _VersionHistoryDialog(note: note),
                   );
               }
             },
@@ -2055,6 +2126,482 @@ class _MoveNoteDialogState extends ConsumerState<_MoveNoteDialog> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Move'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Share dialog ─────────────────────────────────────────────────────────────
+//
+// Built from what's captured across `.docs/reference/Note Sharing and
+// Permissions*.har`, `.docs/reference/Share RW*.har`, and `.docs/reference/
+// Revoke Share*.har`: enabling sharing + a public link (create/revoke),
+// sharing with a DSM group OR an individual user, a read-only/read-write
+// perm choice (rw directly verified on a user share; inferred by symmetry
+// for group/public — see NoteStationService.setPublicPermission's doc
+// comment), and removing a single USER's share (verified). Removing a
+// single GROUP's share is ALSO offered here now but is UNVERIFIED — no
+// capture of that specific call exists; it's built by symmetry with the
+// user-remove call (see NoteStationService.deleteGroupPermission's doc
+// comment) per Aaron's go-ahead (2026-07-31) to ship the guess and
+// re-capture/fix if it doesn't actually work. Still not offered: disabling
+// sharing outright (every Permission.set call captured — including both
+// revoke flows — sent enabled:true; enabled:false has never been sent).
+class _ShareNoteDialog extends ConsumerStatefulWidget {
+  final Note note;
+  const _ShareNoteDialog({required this.note});
+
+  @override
+  ConsumerState<_ShareNoteDialog> createState() => _ShareNoteDialogState();
+}
+
+class _ShareNoteDialogState extends ConsumerState<_ShareNoteDialog> {
+  final _searchController = TextEditingController();
+  bool _busy = false;
+  String? _publicLink;
+  String _newSharePerm = 'ro';
+  List<({String name, String type})> _searchResults = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.note.acl.publicPerm != null) _loadPublicLink();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPublicLink() async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    try {
+      final url = await repo.getPublicShareLink(widget.note.id);
+      if (mounted) setState(() => _publicLink = url);
+    } catch (e) {
+      debugPrint('Get public share link failed: $e');
+    }
+  }
+
+  Future<void> _createPublicLink() async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.setSharingEnabled(widget.note.id, true);
+      await repo.setPublicPermission(widget.note.id, _newSharePerm);
+      await _loadPublicLink();
+      syncAfterMutation(ref);
+    } catch (e) {
+      debugPrint('Create public link failed: $e');
+      if (mounted) AppToast.error(context, 'Could not create the public link.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _revokePublicLink() async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.deletePublicPermission(widget.note.id);
+      if (mounted) setState(() => _publicLink = null);
+      syncAfterMutation(ref);
+    } catch (e) {
+      debugPrint('Revoke public link failed: $e');
+      if (mounted) AppToast.error(context, 'Could not revoke the public link.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _search(String query) async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null || query.trim().isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+    try {
+      final results = await repo.searchSharePriv(query.trim());
+      if (mounted) setState(() => _searchResults = results);
+    } catch (e) {
+      debugPrint('Share search failed: $e');
+    }
+  }
+
+  Future<void> _shareWithGroup(String groupName) async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.setSharingEnabled(widget.note.id, true);
+      await repo.setGroupPermission(
+          noteId: widget.note.id, groupName: groupName, perm: _newSharePerm);
+      _searchController.clear();
+      if (mounted) setState(() => _searchResults = []);
+      syncAfterMutation(ref);
+      if (mounted) AppToast.success(context, 'Shared with $groupName');
+    } catch (e) {
+      debugPrint('Share with group failed: $e');
+      if (mounted) AppToast.error(context, 'Could not share with $groupName.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _shareWithUser(String username) async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.setSharingEnabled(widget.note.id, true);
+      await repo.setUserPermission(
+          noteId: widget.note.id, username: username, perm: _newSharePerm);
+      _searchController.clear();
+      if (mounted) setState(() => _searchResults = []);
+      syncAfterMutation(ref);
+      if (mounted) AppToast.success(context, 'Shared with $username');
+    } catch (e) {
+      debugPrint('Share with user failed: $e');
+      if (mounted) AppToast.error(context, 'Could not share with $username.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _removeUserShare(NoteUserShare share) async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.deleteUserPermission(
+          noteId: widget.note.id, username: share.name, uid: share.uid);
+      syncAfterMutation(ref);
+      if (mounted) AppToast.success(context, 'Removed ${share.name}');
+    } catch (e) {
+      debugPrint('Remove user share failed: $e');
+      if (mounted) AppToast.error(context, 'Could not remove ${share.name}.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  // UNVERIFIED (see NoteStationService.deleteGroupPermission's doc comment)
+  // — enabled per Aaron's go-ahead to try it and recapture if it doesn't
+  // actually revoke the share.
+  Future<void> _removeGroupShare(NoteGroupShare share) async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _busy = true);
+    try {
+      await repo.deleteGroupPermission(
+          noteId: widget.note.id, groupName: share.name, gid: share.groupId);
+      syncAfterMutation(ref);
+      if (mounted) AppToast.success(context, 'Removed ${share.name}');
+    } catch (e) {
+      debugPrint('Remove group share failed: $e');
+      if (mounted) AppToast.error(context, 'Could not remove ${share.name}.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _permSelector() {
+    return SegmentedButton<String>(
+      segments: const [
+        ButtonSegment(value: 'ro', label: Text('Read only')),
+        ButtonSegment(value: 'rw', label: Text('Read-write')),
+      ],
+      selected: {_newSharePerm},
+      onSelectionChanged: _busy
+          ? null
+          : (s) => setState(() => _newSharePerm = s.first),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    // Re-read the freshest note (acl may have just changed) rather than the
+    // possibly-stale widget.note captured when the dialog opened.
+    final note = ref.watch(selectedNoteProvider).valueOrNull ?? widget.note;
+
+    return AlertDialog(
+      title: const Text('Share Note'),
+      content: SizedBox(
+        width: 380,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Public link', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 6),
+              if (note.acl.publicPerm != null) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _publicLink ?? 'Loading…',
+                        style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, size: 16),
+                      tooltip: 'Copy link',
+                      onPressed: _publicLink == null
+                          ? null
+                          : () {
+                              Clipboard.setData(
+                                  ClipboardData(text: _publicLink!));
+                              AppToast.success(context, 'Link copied');
+                            },
+                    ),
+                  ],
+                ),
+                Text('Permission: ${note.acl.publicPerm}',
+                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                TextButton.icon(
+                  onPressed: _busy ? null : _revokePublicLink,
+                  icon: const Icon(Icons.link_off_rounded, size: 16),
+                  label: const Text('Revoke public link'),
+                ),
+              ] else ...[
+                _permSelector(),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _createPublicLink,
+                  icon: const Icon(Icons.link_rounded, size: 16),
+                  label: const Text('Create public link'),
+                ),
+              ],
+              const SizedBox(height: 16),
+              Text('Share with a user or group',
+                  style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 6),
+              _permSelector(),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _searchController,
+                enabled: !_busy,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  hintText: 'Search users or groups…',
+                  prefixIcon: Icon(Icons.search_rounded, size: 18),
+                ),
+                onChanged: _search,
+              ),
+              if (_searchResults.isNotEmpty)
+                ...(_searchResults.map((r) => ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                          r.type == 'group'
+                              ? Icons.group_rounded
+                              : Icons.person_rounded,
+                          size: 18),
+                      title: Text(r.name),
+                      onTap: _busy
+                          ? null
+                          : () => r.type == 'group'
+                              ? _shareWithGroup(r.name)
+                              : _shareWithUser(r.name),
+                    ))),
+              if (note.acl.groups.isNotEmpty || note.acl.users.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text('Already shared with',
+                    style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                for (final g in note.acl.groups)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.group_rounded, size: 18),
+                    title: Text(g.name),
+                    subtitle: Text(g.perm),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      tooltip: 'Remove',
+                      onPressed: _busy ? null : () => _removeGroupShare(g),
+                    ),
+                  ),
+                for (final u in note.acl.users)
+                  ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.person_rounded, size: 18),
+                    title: Text(u.name),
+                    subtitle: Text(u.perm),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 16),
+                      tooltip: 'Remove',
+                      onPressed:
+                          _busy ? null : () => _removeUserShare(u),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Version history dialog ───────────────────────────────────────────────────
+//
+// VERIFIED (`.docs/reference/Version restore*.har`): the list's lowest `id`
+// is the CURRENT content (its `version`/`mtime` matched a Note.get taken
+// moments earlier in the capture) and id increases going further back in
+// time — the reverse of what "id" might suggest. Restoring calls
+// Note.Version.restore(ver: <that revision's version sha>) directly; there's
+// no verified preview step (the capture's own Note.get(ver:) before
+// restoring appears to just be how the stock client happened to render a
+// diff/preview, not a required step), so this restores immediately behind a
+// confirmation dialog instead of adding an unverified preview UI.
+class _VersionHistoryDialog extends ConsumerStatefulWidget {
+  final Note note;
+  const _VersionHistoryDialog({required this.note});
+
+  @override
+  ConsumerState<_VersionHistoryDialog> createState() =>
+      _VersionHistoryDialogState();
+}
+
+class _VersionHistoryDialogState extends ConsumerState<_VersionHistoryDialog> {
+  List<NoteVersion>? _versions;
+  bool _loading = true;
+  bool _restoring = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    try {
+      final versions = await repo.listNoteVersions(widget.note.id);
+      // Lowest id = current/newest, ascending id = further back in time.
+      versions.sort((a, b) => a.id.compareTo(b.id));
+      if (mounted) {
+        setState(() {
+          _versions = versions;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('List note versions failed: $e');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _confirmRestore(NoteVersion v) async {
+    final when = v.mtime != null
+        ? DateFormat.yMMMd().add_jm().format(v.mtime!)
+        : 'this revision';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restore this version?'),
+        content: Text(
+          'This replaces the note\'s current content with the version from '
+          '$when. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final repo = ref.read(repositoryProvider);
+    if (repo == null) return;
+    setState(() => _restoring = true);
+    try {
+      await repo.restoreNoteVersion(noteId: widget.note.id, ver: v.ver);
+      syncAfterMutation(ref);
+      if (mounted) {
+        AppToast.success(context, 'Note restored');
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      debugPrint('Restore note version failed: $e');
+      if (mounted) AppToast.error(context, 'Could not restore this version.');
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Version History'),
+      content: SizedBox(
+        width: 380,
+        height: 320,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+            : (_versions == null || _versions!.isEmpty)
+                ? Center(
+                    child: Text('No earlier versions',
+                        style: TextStyle(color: cs.onSurfaceVariant)),
+                  )
+                : ListView.builder(
+                    itemCount: _versions!.length,
+                    itemBuilder: (context, i) {
+                      final v = _versions![i];
+                      final isCurrent = i == 0;
+                      return ListTile(
+                        leading: Icon(
+                          isCurrent
+                              ? Icons.radio_button_checked_rounded
+                              : Icons.history_rounded,
+                          size: 18,
+                        ),
+                        title: Text(v.mtime != null
+                            ? DateFormat.yMMMd().add_jm().format(v.mtime!)
+                            : 'Revision ${v.id}'),
+                        subtitle: Text(v.author),
+                        trailing: isCurrent
+                            ? Text('Current',
+                                style: TextStyle(
+                                    fontSize: 11, color: cs.onSurfaceVariant))
+                            : TextButton(
+                                onPressed: _restoring
+                                    ? null
+                                    : () => _confirmRestore(v),
+                                child: const Text('Restore'),
+                              ),
+                      );
+                    },
+                  ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
         ),
       ],
     );
