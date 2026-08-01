@@ -134,24 +134,29 @@ whether it's been capture-verified. Several APIs below are verified but not (yet
 | SYNO.NoteStation.FTS | 1 | ✅ | V | ✅ | Full-text search |
 | SYNO.NoteStation.Shortcut | 1 | ✅ | V | — | Sidebar shortcuts — verified but not read/written by this project |
 | SYNO.Core.UserSettings | 1 | ✅ | V | — | View/sort/todo-filter prefs — verified but this project keeps these local instead |
-| SYNO.NoteStation.Todo | 1-2 | 📝 | V* | — | Envelope verified, empty — no item shape yet |
-| SYNO.NoteStation.Smart | 1 | 📝 | V* | — | Envelope verified, empty — no shape yet |
+| SYNO.NoteStation.Info | 2 | ✅ | V | ✅ | Account info (uid/username/is_admin) — needed to build Smart-notebook tag criteria |
+| SYNO.NoteStation.Todo | 1-2 | ✅ | V | ✅ | Tasks + subtasks: list/create/set/delete, `parent_id` for subtasks |
+| SYNO.NoteStation.Smart | 1 | ✅ | V | ✅ | Smart notebooks: create/list; "opening" one is `Note.list` with `perm_from`/`smart_id` |
+| SYNO.NoteStation.Note.Version | 2 | ✅ | V | ✅ | Version history: list/restore; `Note.get` gained a `ver` param |
+| SYNO.NoteStation.Share.Priv | 2 | ✅ | V | ✅ | User/group autocomplete search for sharing |
+| SYNO.NoteStation.Shard.Link | 1 | ✅ | V | ✅ | Public share link (get only) |
+| SYNO.NoteStation.Permission | 1 | ✅ | V | ✅ | Note-level sharing on/off |
+| SYNO.NoteStation.Permission.Public | 1 | ✅ | V | ✅ | Public link perm set/delete |
+| SYNO.NoteStation.Permission.Group | 1 | ✅ | V/I | ✅ | `set` verified; `delete` is an unverified guess (see below) |
+| SYNO.NoteStation.Permission.User | 1 | ✅ | V | ✅ | Individual-user share set/delete, incl. `perm:"rw"` |
+| SYNO.NoteStation.Export.Notebook | 1 | ✅ | V | ✅ | Server-side async .nsx export job (start/status) — distinct from this project's own local `.nsx` codec |
+| SYNO.NoteStation.Import.Notebook | 1 | ✅ | V | ✅ | Server-side async .nsx import job (start/status), reading a file already on the NAS |
 | SYNO.NoteStation.Note.Polling | 1-3 | 📝 | I | — | Incremental sync — not captured |
 | SYNO.NoteStation.Notebook.Polling | 1 | 📝 | I | — | Incremental sync — not captured |
-| SYNO.NoteStation.Note.Version | 1-2 | 🔲 | I | — | Version history |
 | SYNO.API.Encryption | 1 | 🔲 | I | — | RSA-wrapped passwords (if used) |
-| SYNO.NoteStation.Share.Priv | 1-2 | 🔲 | I | — | Sharing |
-| SYNO.NoteStation.Shard / Shard.Link | 1 | 🔲 | I | — | Public share links |
-| SYNO.NoteStation.Permission* | 1 | 🔲 | I | — | Root/user/group/public perms |
-| SYNO.NoteStation.Export.* | 1 | 🔲 | I | — | Export note/.nsx/.docx |
-| SYNO.NoteStation.Import.* | 1 | 🔲 | I | — | Import .nsx/.enex/Evernote |
+| SYNO.NoteStation.Export.Note / Export.Word | 1 | 🔲 | I | — | Single-note export formats |
+| SYNO.NoteStation.Import.Enex / Import.Evernote | 1 | 🔲 | I | — | Import from Evernote |
 | SYNO.NoteStation.Notebook.Preset | 1 | 🔲 | I | — | Notebook templates |
 | SYNO.NoteStation.Setting / Setting.Global | 1-2 | 🔲 | I | — | User/global settings |
-| SYNO.NoteStation.Info | 1-3 | 🔲 | I | — | Service info |
 
-*"Restore from trash" and "permanently delete from trash" are **not** a separate `Ghost`
-API — trash itself is `Note.delete` + `recycle=true` (verified, see below). There is no
-verified restore/purge call yet.
+Restore-from-trash and permanent purge are **not** a separate `Ghost` API — both are on
+`SYNO.NoteStation.Note` itself: `restore` (dedicated method) and `delete` with
+`recycle=false` applied to an already-trashed note (purge). See below.
 
 The `SYNO.NoteStation.Import.*` row above is about a *server-side* import API and remains
 unstarted — separately, this project already has a fully working *client-side* `.nsx`
@@ -308,7 +313,8 @@ response is a **partial** object under `data.data[0]` (not a full note), carryin
 {"data":{"data":[{"object_id":"<id>","ver":"<new sha1>","mtime":...,"link_id":...,"attachment":null,"thumb":null}]},"success":true}
 ```
 
-**`delete`** (move to trash) — v3 — V, confirmed 2026-07-19:
+**`delete`** (move to trash) — v3 — V, confirmed 2026-07-19 and again in
+`Recyling Bin Delete and Restore*.har`:
 ```
 api=SYNO.NoteStation.Note&version=3&method=delete
 &object_id=["<id>"]&recycle=true
@@ -317,11 +323,31 @@ api=SYNO.NoteStation.Note&version=3&method=delete
 delete — it flips the note's `recycle` flag; the object isn't removed. A subsequent `list`
 with `filter:{"recycle":false,...}` no longer returns it.
 
-Restore-from-trash and permanent purge are **not verified**. By symmetry with other boolean
-fields (`is_starred` toggles via `set`), restore is *plausibly* `set` with `recycle:false`,
-and listing trash is *plausibly* `list` with `filter:{"recycle":true}` — but neither has
-been captured. Do not implement either on this guess; the app currently only ever trashes,
-never restores or purges.
+**`delete` on an already-trashed note** (permanent purge) — v3 — V:
+```
+api=SYNO.NoteStation.Note&version=3&method=delete
+&object_id=["<id>"]&recycle=false
+```
+Same endpoint/method as the soft-delete above — the meaning of `recycle` flips based on the
+note's *current* state: applied to a live note it trashes; applied to an already-trashed
+note it purges permanently. Only captured against an already-trashed note; calling this on a
+live note has not been tested (would presumably just be a no-op restore-to-live-and-back, or
+possibly nothing — untested).
+
+**`restore`** (un-trash) — v3 — V, its own dedicated method (not `set`, and not the same
+`restore` as `Note.Version` — see that section below):
+```
+api=SYNO.NoteStation.Note&version=3&method=restore&object_id=["<id>"]
+```
+`object_id` is a JSON array. The server restores the note to its original notebook on its
+own — the note object carries an `old_parent_id` field while trashed (see schema below), but
+this call doesn't need to pass it explicitly.
+
+**`list` scoped to trash** — v3 — V: same endpoint as the main list above, with
+`filter.recycle:true` instead of `false`. The capture's filter also explicitly included
+`owner` (`{"recycle":true,"owner":<uid>,"archive":false}`) — the main `list` above works
+fine without `owner`, so this may just be incidental to how the stock client happened to
+build this particular call rather than a hard requirement.
 
 **`copy`** — v3 — V. General-purpose duplicate-with-transform, used both to encrypt a note
 and (per an older capture) to decrypt one server-side during "copy without password":
@@ -481,6 +507,255 @@ Changing the password on an already-encrypted note, and permanently removing enc
 are **not captured** — plausibly the same copy-based pattern (decrypt or re-encrypt
 client-side, submit via `copy`) but unverified. Not implemented.
 
+### SYNO.NoteStation.Note.Version — v2 — V (version history)
+
+**`list`** — versions of a note, newest-first-by-*lowest-id* (see note below):
+```
+api=SYNO.NoteStation.Note.Version&version=2&method=list
+&object_id="<note id>"&limit=100&filter={"listable":true}
+```
+```json
+{"data":{"count":3,"offset":0,"total":3,"versions":[
+  {"id":1,"author":"Aaron","mtime":1785526837,
+   "version":"8ca31fe286acc23e77dd17e8a0a709dec984af05",
+   "commit_msg":{"device":"desktop","listable":true},
+   "last_version":["33a458c20d9adf46bf8136b2e21e2623dc58ab07"]},
+  ...
+]},"success":true}
+```
+⚠️ **The lowest `id` is the CURRENT content, and `id` increases going further back in
+time** — the reverse of what "id" might suggest. Confirmed by cross-referencing: `id:1`'s
+`version`/`mtime` exactly matched a `Note.get` taken moments earlier in the same capture.
+`version` (despite the name collision) is the same value both `Note.get`'s `ver` param and
+`Note.Version.restore`'s `ver` param key on — NOT the field literally named `ver` elsewhere;
+here it's nested under `versions[].version`.
+
+**`Note.get` with a `ver` param** — fetches a specific historical revision's content instead
+of the current one:
+```
+api=SYNO.NoteStation.Note&version=3&method=get
+&object_id="<id>"&ver="<a versions[].version value from Note.Version.list>"
+```
+Otherwise identical to the normal `get` documented above.
+
+**`restore`** — restores the note to a given revision, **in place** (a real mutation, not a
+preview):
+```
+api=SYNO.NoteStation.Note.Version&version=2&method=restore
+&object_id="<id>"&ver="<versions[].version value>"
+```
+Response comes back with `commit_msg:{"action":"restore"}` and a fresh `ver`/`mtime`, same
+shape as a normal `Note.get`. This is a **different `restore`** than `SYNO.NoteStation.Note`
+`restore` (un-trash, see above) — same verb, different API, different purpose.
+
+### SYNO.NoteStation.Todo — v1(list, in the startup batch)/v2(list/create/set)/v1(delete) — V
+
+Tasks are first-class objects with their own `object_id`, not embedded in a note (unless
+explicitly linked via `note_id`). Subtasks are just Todos with a `parent_id`.
+
+**`list`**
+```
+api=SYNO.NoteStation.Todo&version=2&method=list
+&field={"items":true}&filter={}&offset=0&limit=100
+&sort_by="due_date"&sort_direction="asc"
+```
+`field.items:true` requests subtasks. `filter` can scope: `{"parent_id":"<id>"}` for one
+task's subtasks, or `{"note_id":["<note object_id>"]}` for todos linked to a note.
+```json
+{"data":{"count":1,"offset":0,"todos":[
+  {"object_id":"1026_...","title":"NEW TASK","comment":"","done":false,"star":false,
+   "priority":-1,"due_date":-1,"parent_id":"","note_id":"","note_parent_id":"",
+   "note_title":"","reminder_offset":-1,
+   "items":["1026_subtaskA","1026_subtaskB"]}
+]},"success":true}
+```
+⚠️ **A parent's `items` field is an array of subtask `object_id` STRINGS, not nested todo
+objects.** Fetch a subtask's own fields with a separate `list` call filtered by
+`parent_id`. `priority:-1`/`due_date:-1` mean "not set".
+
+**`create`**
+```
+api=SYNO.NoteStation.Todo&version=2&method=create
+&title="Task title"
+&due_date=1788210000        (optional — epoch SECONDS; only ever captured at create time)
+&parent_id="<parent task's object_id>"   (optional — creates a SUBTASK)
+```
+Response is the new todo directly under `data` (same "create returns the object directly"
+pattern as `Note.create`).
+
+**`set`** (update) — each field captured as its own independent call, but presumably
+combinable:
+```
+api=SYNO.NoteStation.Todo&version=2&method=set
+&object_id=["<id>"]
+&comment="free text"    | &priority=300    | &star=true    | &done=true
+```
+`object_id` is a JSON array (batch-capable), same convention as `Note.delete`. `priority`'s
+bucket boundaries are **not verified** — only `300` has ever been captured; treat any other
+value as an inference. `title`/`due_date` as a later edit (vs. only at create) are also
+unverified but very likely accepted here by symmetry with every other field being a plain
+optional param on the same generic object-update call.
+
+**`delete`** — ⚠️ **v1, NOT v2** (list/create/set are v2 — easy to get wrong):
+```
+api=SYNO.NoteStation.Todo&version=1&method=delete&object_id=["<id>"]
+```
+
+### SYNO.NoteStation.Smart — v1 — V (smart/saved-search notebooks)
+
+**`create`** — the "critical" capture per the old checklist, since it reveals nested/array
+param encoding:
+```
+api=SYNO.NoteStation.Smart&version=1&method=create
+&title="Smart Notebook"
+&query={"keyword":"SMART","title":"THIS IS A SMART NOTEBOOK",
+        "tag":["Mom's Recipies@1026"],"tag_operator":"and",
+        "parent_id":["1026_<notebook id>"]}
+&commit_msg={"device":"desktop"}
+```
+```json
+{"data":{"link_id":"hGOJo","object_id":"1026_..."},"success":true}
+```
+⚠️ **`query.tag` is an array of `"<tagName>@<uid>"` strings — the tag's NAME, not its
+`tag_id`.** All four `query` keys are optional/independent; `keyword` searches note content,
+`title` restricts by note title, `tag`/`tag_operator` (`"and"`/`"or"`) restrict by tag
+membership, `parent_id` (an array) restricts to specific notebooks.
+
+**`list`** → `data.smarts[]`, `data.total`. Only title/metadata — **does NOT echo the
+`query` back**, and no `Smart.get` (or equivalent) has ever been observed, so an existing
+smart notebook's criteria can't be recovered from the server at all once you don't already
+know it client-side.
+
+**"Opening" a smart notebook** (i.e. fetching its matching notes) is **not a separate
+endpoint** — it's the same `Note.list` v3 call used everywhere, with two extra top-level
+params instead of `filter.parent_id`:
+```
+api=SYNO.NoteStation.Note&version=3&method=list
+&filter={"recycle":false,"owner":<uid>}&field={}
+&offset=0&limit=50&sort_by="title"&sort_direction="desc"
+&perm_from="smart"&smart_id="<the smart notebook's object_id>"
+```
+The server computes the match itself. Note this `filter`/`field` shape differs subtly from
+the normal `Note.list` (no `archive` key in filter; `field` is empty instead of requesting
+`link_id`/`commit_msg`) — unexplained, but worth mirroring exactly rather than assuming it's
+interchangeable with the main note list call.
+
+### SYNO.NoteStation.Share.Priv / Shard.Link / Permission* — V (sharing)
+
+**`Share.Priv` `list`** — v2 — autocomplete search over DSM users/groups:
+```
+api=SYNO.NoteStation.Share.Priv&version=2&method=list&query="ad"
+```
+```json
+{"data":{"list":[{"name":"admin","type":"user"},{"name":"administrators","type":"group"}],
+ "offset":0,"total":2},"success":true}
+```
+
+**`Shard.Link` `get`** — v1 — the note's public share URL:
+```
+api=SYNO.NoteStation.Shard.Link&version=1&method=get
+&object_id="<note id>"&mode="public"
+```
+```json
+{"data":{"mode":"ddns","url":"https://<host>:5001/ns/sharing/<link_id>"},"success":true}
+```
+`mode="private"` is plausible (public is the only value ever captured) but unconfirmed.
+
+**`Permission` `set`** — v1 — turns note-level sharing on as a whole. Always seen paired
+with a `Permission.Public`/`.Group`/`.User` `set` in the same UI action (captured as two
+separate sequential `entry.cgi` calls, or batched via `SYNO.Entry.Request` — functionally
+the same either way):
+```
+api=SYNO.NoteStation.Permission&version=1&method=set
+&object_id="<note id>"&enabled=true
+```
+`enabled:false` has **never** been captured — not even the public-link *revoke* flow touches
+it (see below). Treat "disable sharing entirely" as unverified.
+
+**`Permission.Public` `set`/`delete`** — v1 — the public link's own permission:
+```
+api=SYNO.NoteStation.Permission.Public&version=1&method=set
+&object_id="<note id>"&perm="ro"
+
+api=SYNO.NoteStation.Permission.Public&version=1&method=delete
+&object_id="<note id>"
+```
+`delete` (object_id only) fully revokes the public link — this is the one confirmed "remove
+a share" call. `perm` is only ever confirmed as `"ro"` on THIS specific endpoint (see
+`Permission.User` below for where `"rw"` was actually observed).
+
+**`Permission.Group` `set`** — v1 — shares with a DSM group:
+```
+api=SYNO.NoteStation.Permission.Group&version=1&method=set
+&object_id="<note id>"&groupname="administrators"&perm="ro"
+```
+No `Permission.Group` `delete` has been captured — this project ships one anyway, **as an
+explicit, labeled guess** (`groupname` + a `gid` int mirroring `Permission.User`'s own
+`uid` — see immediately below), because removing it was requested without a fresh capture.
+If it misbehaves in the real app, that guessed shape is the first thing to re-capture.
+
+**`Permission.User` `set`/`delete`** — v1 — shares with an individual DSM user:
+```
+api=SYNO.NoteStation.Permission.User&version=1&method=set
+&object_id="<note id>"&username="admin"&perm="rw"
+
+api=SYNO.NoteStation.Permission.User&version=1&method=delete
+&object_id="<note id>"&username="admin"&uid=1024
+```
+⚠️ **`perm:"rw"` is confirmed here** (the only endpoint where a non-`"ro"` value has ever
+been captured). ⚠️ **`delete` needs BOTH `username` and `uid`, and `uid` rides as a BARE
+JSON NUMBER** (`uid=1024`, not a quoted string) — even though the identical value appears as
+a **string** map-key in `Note.acl.dsm_user` (see schema below). Easy to regress if this is
+touched without re-checking.
+
+**Resulting `Note.acl` shape** (returned by `Note.get`/`Note.list` once shared):
+```json
+{"enabled":true,
+ "public":{"inherit":false,"perm":"ro"},
+ "dsm_group":{"101":{"inherit":false,"name":"administrators","perm":"ro"}},
+ "dsm_user":{"1024":{"inherit":false,"name":"admin","perm":"rw"}}}
+```
+The `dsm_group`/`dsm_user` map keys (`"101"`, `"1024"`) are the group/user's numeric id as a
+**string** — this is where `Permission.User.delete`'s `uid` value comes from (parsed back to
+an int for that call).
+
+### SYNO.NoteStation.Export.Notebook / Import.Notebook — v1 — V (server-side .nsx job)
+
+Distinct from this project's own **local** `.nsx` codec (`lib/core/nsx/nsx_codec.dart` —
+parses/builds the ZIP format directly, client-side, no server API involved at all). This is
+the real NAS's own **async job**, which writes/reads the `.nsx` file to/from a folder **on
+the NAS itself** — moving that file to/from the client device still needs a separate
+FileStation upload/download, which has no capture yet (no FileStation folder-browse capture
+exists), so this project's UI takes a plain NAS path string instead of a real picker.
+
+**`Export.Notebook` `start`**:
+```
+api=SYNO.NoteStation.Export.Notebook&version=1&method=start
+&object_id=null&save_config=false&dest="/Downloads"&export_todo=true
+```
+```json
+{"data":{"task_id":"Aaron/NoteStation_Export17855266788494DB49"},"success":true}
+```
+⚠️ **`object_id=null` (export every notebook) is sent as a LITERAL JSON `null`, not an
+omitted param.** `dest` is a NAS-relative folder path.
+
+**`Export.Notebook` `status`** — no params; poll until `finish:true`:
+```json
+{"data":{"auto_remove":false,"finish":true,
+ "data":{"current":9,"total":9,"finish_time":1785526678},
+ "info":{...}},"success":true}
+```
+
+**`Import.Notebook` `start`** — reads a `.nsx` already sitting in a NAS folder:
+```
+api=SYNO.NoteStation.Import.Notebook&version=1&method=start
+&file=[{"name":"20260731_153758_11781_Aaron.nsx","format":"ds",
+        "path":"/Downloads/20260731_153758_11781_Aaron.nsx"}]
+```
+`file` is an array (batch-capable, one entry captured). `format:"ds"` was the only value
+seen — meaning unconfirmed. `Import.Notebook status` mirrors `Export.Notebook status`'s
+shape exactly.
+
 ### SYNO.NoteStation.Tag — v1-2 — V
 
 **`list`** → `data.tags[]`, `data.total` (schema below — note `tag_id` is a composite
@@ -583,10 +858,14 @@ archive     bool
 category    string   "note"
 perm        string   "owner" | ...
 owner       {display_name, uid}
-acl         {} | {enabled, public:{inherit, perm:"ro"}}
+acl         {} | {enabled, public:{inherit,perm}, dsm_group:{<gid>:{inherit,name,perm}},
+                   dsm_user:{<uid>:{inherit,name,perm}}}   — see Sharing section for how
+                                                              these three sub-keys populate
 commit_msg  {} | {device, listable}   (last-edit metadata; only if requested via field={commit_msg:true})
 link_id     string   short public-link id (only if requested via field={link_id:true})
-ver         string   content revision hash (sha1) — required for `set`'s optimistic concurrency
+ver         string   content revision hash (sha1) — required for `set`'s optimistic concurrency;
+                     also what Note.Version.list's `versions[].version` and Note.get's `ver` key on
+old_parent_id string the notebook it was in before being trashed — only present while `recycle:true`
 thumb       null | {ext,height,width,md5,name,rotate,size,thumb_source,type:"image"}
 attachment  null | {<ref_id>: {md5,name,ext,type,size,width,height,rotate,ref,source}}
 ```
@@ -624,16 +903,49 @@ items    null
 owner, acl
 ```
 
-### Todo (`Todo.list` v1 → `data`) — partial, envelope only
+### NoteVersion (`Note.Version.list` v2 → `data.versions[]`, `data.total`)
 ```
-{count:0, offset:0, total:0}   ← captured while empty; item shape unknown.
+id          int      LOWEST = current/newest; increases going further back in time (see
+                      the Note.Version section above — reverse of what "id" suggests)
+version     string   sha1 — feeds Note.get's `ver` param and Note.Version.restore's `ver` param
+author      string   display name
+mtime       int      epoch seconds
+commit_msg  {device, listable} | {action:"restore"}   (present on a version created by a restore)
+last_version string[] (sha1 of the version this one superseded — purpose not otherwise explored)
 ```
-See "Inferred APIs" below for the guessed item shape pending a real capture.
 
-### Smart (`Smart.list` v1 → `data`) — partial, envelope only
+### Todo (`Todo.list` v2 → `data.todos[]`, `data.count`/`data.total`)
 ```
-{offset:0, total:0}   ← captured while empty; criteria/shape unknown.
+object_id       string    the task id   ← not todo_id
+title           string
+comment         string    free-text note on the task (not the same as a linked note's content)
+done            bool
+star            bool
+priority        int       -1 = unset. Bucket boundaries NOT verified — only 300 has ever
+                          been captured (this project's UI guesses None/Low/Medium/High as
+                          -1/100/200/300, flagged unverified in the Dart source)
+due_date        int       epoch SECONDS, -1 = unset. Only ever captured being set at CREATE
+                          time, never as a later edit (though `set` presumably accepts it —
+                          same generic multi-field update shape as every other field here)
+parent_id       string    "" = top-level task; a task's object_id = this is a SUBTASK of it
+note_id         string    "" = not linked to a note
+note_parent_id, note_title   string, only populated when note_id is set (untested)
+reminder_offset int       -1 = unset. Unit/representation not explored.
+items           string[]  child subtask object_ids (see the Todo API section above — NOT
+                          nested objects)
 ```
+
+### Smart (`Smart.list` v1 → `data.smarts[]`, `data.total`)
+```
+object_id  string   the smart notebook id
+title      string
+category   "smart"
+link_id, ctime, mtime, perm, owner, acl
+```
+⚠️ The `query` a smart notebook was created with (keyword/title/tag/tag_operator/parent_id —
+see the Smart API section above) is **NOT** part of this list response and can't be
+recovered from the server once you don't already know it — see that section for why
+"opening" one doesn't need it anyway (server-side `perm_from`/`smart_id` scoping).
 
 ### Cross-cutting
 - IDs are `<volumeId>_<ULID>`; the per-object key is **`object_id`** everywhere in API
@@ -671,38 +983,36 @@ Capture recipe: leave the web UI open and idle with DevTools recording to catch 
 *automatic* background poll (reveals the method + token param with zero guessing), then
 edit a note in a second tab and capture the next poll to see how a change is represented.
 
-### SYNO.NoteStation.Todo — v1-2 — guessed shape, needs capture
+### Remaining unverified corners of otherwise-done APIs
 
-Powers the to-do list: tasks classified starred/overdue/due-within-7-days, with priority,
-scheduling, DSM-notification reminders, and subtasks (a note holds up to 50 tasks per
-`requirements.txt`). Open question the `list` capture would answer: are todos first-class
-objects with their own ids, or always children of a note?
+These aren't whole unstarted APIs — see the Core NoteStation APIs section above for the
+verified majority of each — just specific values/sub-flows within them that have no capture:
 
-```
-list    — version=2, maybe notebook_id / filter=all|starred|overdue|due7
-create  — title, note_id?, due_date?, priority?, parent_id? (for subtask)
-update  — todo_id, + any of title/done|is_done/priority/due_date/reminder/is_starred
-delete  — todo_id
-```
-Unknowns: object key name (`todo_id` vs `object_id`), done-flag name, date format (other
-Note APIs use epoch seconds — likely the same), subtask linkage, reminder representation.
-
-### SYNO.NoteStation.Smart — v1 — needs capture
-
-Smart (saved-search) notebooks. Capturing a create with a couple of criteria is high value
-— it's the best available window into how the wire format encodes nested/array params for
-APIs beyond the simple ones already verified.
+- **`Permission.Group` `delete`** (removing a single group's share) — this project ships a
+  guessed shape anyway (see the Sharing section above); re-capture if it misbehaves.
+- **`Permission` `set` with `enabled:false`** (disabling sharing entirely) — every capture,
+  across five separate sharing-capture sessions, has only ever sent `enabled:true`.
+- **`Permission.Public`/`.Group` `set` with `perm:"rw"`** — `"rw"` is confirmed on
+  `Permission.User` only; inferred by symmetry for the other two (identical `{object_id,
+  perm}`-shaped call).
+- **Todo `set` with `title`/`due_date`** as a later edit (as opposed to only at `create`) —
+  presumably works (same generic multi-field call as `comment`/`priority`/`star`/`done`,
+  all independently verified there) but untested.
+- **Todo `priority` bucket boundaries** — only the single value `300` has ever been
+  captured.
 
 ### Everything else (P2-P4, no capture yet)
 
-`Note.Version` (restore an old revision), `SYNO.API.Encryption` (RSA-wrapped passwords, if
-the stock client uses one — not observed in any capture so far, ours sends plaintext
-passwords over HTTPS same as the verified Note.Encrypt capture), `Share.Priv`/`Shard`/
-`Shard.Link` (sharing + public links), `Permission`/`Permission.User`/`.Group`/`.Public`,
-`Export.Note`/`Export.Notebook`/`Export.Word`, `Import.Notebook`/`Import.Enex`/
-`Import.Evernote`, `Notebook.Preset` (templates), `Setting`/`Setting.Global`, `Info`. No
-capture attempted yet for any of these — treat every param/response shape as unknown until
-one exists.
+`SYNO.API.Encryption` (RSA-wrapped passwords, if the stock client uses one — not observed in
+any capture so far, ours sends plaintext passwords over HTTPS same as the verified
+Note.Encrypt capture), `Export.Note`/`Export.Word` (single-note export formats — distinct
+from the now-verified `Export.Notebook`), `Import.Enex`/`Import.Evernote`, `Notebook.Preset`
+(templates), `Setting`/`Setting.Global`, FileStation folder-browsing (would let the NSX
+server-job UI use a real file/folder picker instead of plain path text fields), and the
+rich-text schema's code-blocks/blockquotes vocabulary (tracked in
+`lib/core/rich_html/rich_html_schema.dart`, not here — needs its own "apply everything"
+`Note.get` capture). No capture attempted yet for any of these — treat every param/response
+shape as unknown until one exists.
 
 ---
 
@@ -760,28 +1070,27 @@ never decrypted or rendered).
 
 ## Open questions / what's still needed
 
-In priority order (see `CAPTURE-CHECKLIST.md` for the exact click-by-click steps):
+In priority order:
 
-1. **Note.Polling / Notebook.Polling** — the incremental-sync backbone; highest value, do
-   first.
-2. **Rich-text HTML schema** — DONE. The rich WebView editor described here as "planned" has
-   since been built; its confirmed-preserved tag/attribute/style vocabulary lives in
-   `lib/core/rich_html/rich_html_schema.dart`, not in this file.
-3. **Todo** — list/create/update(star/due/priority)/subtask/done/delete.
-4. **Smart** — create with criteria (reveals nested-param wire encoding for everything
-   else still unstarted).
-5. ~~Attachments~~ — DONE (2026-07-25 capture): upload is `Note.set` multipart, download is
-   the ticket-gated `ns/dv/` path — see the Core NoteStation APIs section above, not a
-   separate `FileStation.Upload` call as originally guessed here.
-6. **Restore from trash** and **permanent purge** — the two missing pieces of the
-   trash/recycle-bin story (see the Note.delete section above).
-7. **Change password / remove encryption** on an already-encrypted note.
-8. P2+: version history, sharing, public links, permissions, export/import formats,
-   notebook templates, settings.
+1. **Note.Polling / Notebook.Polling** — the incremental-sync backbone; the single biggest
+   remaining gap, and the only P1-tier item left undone.
+2. **Rich-text HTML schema** — mostly done (see `lib/core/rich_html/rich_html_schema.dart`
+   for the confirmed vocabulary, not this file); code blocks and blockquotes still need
+   their own "apply everything" `Note.get` capture.
+3. ~~Todo~~ / ~~Smart~~ / ~~Attachments~~ / ~~Version history~~ / ~~Sharing~~ /
+   ~~Export.Notebook/Import.Notebook~~ / ~~Trash restore/purge~~ — DONE, see the Core
+   NoteStation APIs section above for each. Small named gaps remain within a few of these
+   (Permission.Group delete, `enabled:false`, `rw` on Public/Group, Todo priority buckets)
+   — see "Remaining unverified corners of otherwise-done APIs" above.
+4. **Change password / remove encryption** on an already-encrypted note — not captured.
+5. FileStation folder-browsing (blocks a real picker for the NSX export/import UI),
+   `SYNO.API.Encryption`, `Export.Note`/`Export.Word`, `Import.Enex`/`Import.Evernote`,
+   `Notebook.Preset`, `Setting`/`Setting.Global` — none captured, all lower priority.
 
 ## Source captures index
 
-Raw, unedited evidence lives in `captures/`:
+Raw, unedited evidence lives in `.docs/reference/` and `.docs/api/captures/` (both
+gitignored — see the visibility note at the top of this file):
 
 - `Note.CRUD.txt` — login, create/format/encrypt-flow note, full CRUD conventions
 - `Note.Encrypt.txt` — `Note.Encrypt create` request/response
@@ -792,3 +1101,16 @@ Raw, unedited evidence lives in `captures/`:
   UI-prefs persistence; source of the verified object schemas above
 - `NSX-format.md` — the .nsx export container format
 - `checkbox.har`, `encrypt`, `trash.har` — raw HARs behind the above `.txt` summaries
+- `To Do list capture[...].har`, `To Do list capture delete [...].har`,
+  `Substasks [...].har` — Todo list/create/set/delete + subtask create/list
+- `Smart Notebook [...].har` — `Smart.create`/`.list`
+- `Create and Open Smart Notebook [...].har` — same, plus the `perm_from`/`smart_id`
+  `Note.list` scoping that "opening" a smart notebook actually uses
+- `Version restore [...].har` — `Note.Version.list`/`.restore`, `Note.get` with `ver`
+- `Note Sharing and Permissions [...].har` — public link create/revoke, DSM-group share
+- `Share RW [...].har` — individual-user share + `perm:"rw"` (`Permission.User.set`)
+- `Revoke Share [...].har` — `Permission.User.delete`
+- `Export nsx and Import [...].har` — the server-side async `Export.Notebook`/
+  `Import.Notebook` job
+- `Recyling Bin Delete and Restore [...].har` — trash-scoped `Note.list`, purge
+  (`Note.delete recycle=false` on an already-trashed note), `Note.restore`

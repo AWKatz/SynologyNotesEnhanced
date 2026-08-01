@@ -309,6 +309,19 @@ class LocalNotesRepository implements NotesRepository {
     }
   }
 
+  // deleteNote above is already a hard delete locally — there's no local
+  // recycle-bin concept to purge/restore from.
+  @override
+  Future<void> purgeNote(String noteId) =>
+      throw UnsupportedError('Trash requires NAS mode.');
+
+  @override
+  Future<void> restoreNote(String noteId) =>
+      throw UnsupportedError('Trash requires NAS mode.');
+
+  @override
+  Future<List<Note>> listTrashedNotes() async => const [];
+
   /// Imports notebooks + notes (e.g. parsed from a .nsx) into local storage,
   /// preserving their original ids, timestamps, tags, and — crucially — raw
   /// content including encrypted (`Salted__`) bodies, so offline decryption and

@@ -6,10 +6,13 @@ import 'shelves_provider.dart';
 import 'smart_notebooks_provider.dart';
 import 'tags_provider.dart';
 
-/// Virtual, client-side-only nav views (Favorites / Locked notes) — not
+/// Virtual nav views. Favorites/Locked/Shared are client-side-only — not
 /// backed by a dedicated repository query, so selecting one simply widens
 /// the fetch to all notes and [filteredNotesProvider] narrows it further.
-enum NoteFilter { favorites, locked }
+/// Trash is the odd one out: it IS backed by its own query
+/// ([trashedNotesProvider]/`listTrashedNotes`), since trashed notes aren't
+/// part of the normal note list at all — see [notesProvider].
+enum NoteFilter { favorites, locked, shared, trash }
 
 final noteFilterProvider = StateProvider<NoteFilter?>((ref) => null);
 
@@ -28,12 +31,26 @@ final notesProvider = FutureProvider<List<Note>>((ref) async {
   // notebook scope, same way a filter view already does below.
   final smartId = ref.watch(selectedSmartNotebookIdProvider);
   if (smartId != null) return repo.listNotesForSmart(smartId);
-  // A filter view (Favorites/Locked) is global, like the reference
+  final filter = ref.watch(noteFilterProvider);
+  // Trash has its own dedicated query (trashed notes aren't part of the
+  // normal note list at all, unlike Favorites/Locked/Shared which are just
+  // client-side narrowings of it) — reuse trashedNotesProvider rather than
+  // re-implementing the fetch here.
+  if (filter == NoteFilter.trash) {
+    return ref.watch(trashedNotesProvider.future);
+  }
+  // A filter view (Favorites/Locked/Shared) is global, like the reference
   // screenshots' nav items — ignore whatever notebook happens to be selected.
-  final notebookId = ref.watch(noteFilterProvider) == null
-      ? ref.watch(selectedNotebookIdProvider)
-      : null;
+  final notebookId = filter == null ? ref.watch(selectedNotebookIdProvider) : null;
   return repo.listNotes(notebookId: notebookId);
+});
+
+/// Backs the Trash nav view — see [notesProvider]'s doc comment on why
+/// trash needs its own query instead of client-side filtering.
+final trashedNotesProvider = FutureProvider<List<Note>>((ref) async {
+  final repo = ref.watch(repositoryProvider);
+  if (repo == null) return [];
+  return repo.listTrashedNotes();
 });
 
 /// Always all notes, regardless of the currently selected notebook/filter —
@@ -119,7 +136,12 @@ final filteredNotesProvider = Provider<List<Note>>((ref) {
     filtered = filtered.where((n) => n.isFavorite).toList();
   } else if (noteFilter == NoteFilter.locked) {
     filtered = filtered.where((n) => n.isEncrypted).toList();
+  } else if (noteFilter == NoteFilter.shared) {
+    filtered = filtered.where((n) => n.acl.isShared).toList();
   }
+  // Trash: notesProvider already fetched exactly the trashed set via
+  // trashedNotesProvider — nothing left to narrow here (same as the
+  // smart-notebook case below).
 
   // Tag mode in the folder strip (see note_list.dart's _FolderStrip) — same
   // "widen then narrow" shape as favorites/locked above. Selecting a tag
@@ -174,6 +196,7 @@ void syncAfterMutation(WidgetRef ref) {
   ref.invalidate(shelvesProvider);
   ref.invalidate(notesProvider);
   ref.invalidate(allNotesGlobalProvider);
+  ref.invalidate(trashedNotesProvider);
   ref.invalidate(tagsProvider);
   ref.invalidate(selectedNoteProvider);
 }

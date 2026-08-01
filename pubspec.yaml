@@ -1,7 +1,7 @@
 name: synologynotesenhanceds_enhanced
 description: Synology Notes Enhanced — DS NoteStation client for Android, iOS, Windows, macOS, and Linux.
 publish_to: 'none'
-version: 0.10.2+1
+version: 0.12.0+1
 
 environment:
   sdk: '>=3.3.0 <4.0.0'

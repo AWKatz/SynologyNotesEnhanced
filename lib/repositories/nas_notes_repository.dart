@@ -75,6 +75,18 @@ class NasNotesRepository implements NotesRepository {
   Future<void> deleteNote(String noteId) => _service.deleteNote(noteId);
 
   @override
+  Future<void> purgeNote(String noteId) => _service.purgeNote(noteId);
+
+  @override
+  Future<void> restoreNote(String noteId) => _service.restoreNote(noteId);
+
+  @override
+  Future<List<Note>> listTrashedNotes() async {
+    final info = await _service.getInfo();
+    return _service.listTrashedNotes(ownerUid: info.uid);
+  }
+
+  @override
   Future<List<Tag>> listTags() => _service.listTags();
 
   @override

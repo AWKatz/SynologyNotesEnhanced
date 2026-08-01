@@ -23,6 +23,10 @@ class Note {
   // resolve a saved <img ref="..."> tag to a real downloadable URL.
   final Map<String, dynamic> attachment;
   final NoteAcl acl;
+  // VERIFIED (`.docs/reference/Recyling Bin Delete and Restore*.har`): the
+  // real API field is `recycle` — true once a note has been soft-deleted
+  // (trashed). List/get both return it directly, no separate lookup needed.
+  final bool isTrashed;
 
   const Note({
     required this.id,
@@ -40,6 +44,7 @@ class Note {
     this.linkId,
     this.attachment = const {},
     this.acl = const NoteAcl(),
+    this.isTrashed = false,
   });
 
   /// Never derived from `content` or `excerpt` for encrypted notes — those may
@@ -88,6 +93,7 @@ class Note {
       linkId: json['link_id'] as String?,
       attachment: (json['attachment'] as Map<String, dynamic>?) ?? const {},
       acl: NoteAcl.fromJson(json['acl'] as Map<String, dynamic>?),
+      isTrashed: json['recycle'] as bool? ?? false,
     );
   }
 
@@ -120,6 +126,7 @@ class Note {
     String? linkId,
     Map<String, dynamic>? attachment,
     NoteAcl? acl,
+    bool? isTrashed,
   }) {
     return Note(
       id: id ?? this.id,
@@ -137,6 +144,7 @@ class Note {
       linkId: linkId ?? this.linkId,
       attachment: attachment ?? this.attachment,
       acl: acl ?? this.acl,
+      isTrashed: isTrashed ?? this.isTrashed,
     );
   }
 

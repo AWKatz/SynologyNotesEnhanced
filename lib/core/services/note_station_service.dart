@@ -318,10 +318,11 @@ class NoteStationService {
     );
   }
 
-  /// Moves a note to trash. VERIFIED (Note.Ghost.txt): this is a soft delete —
-  /// `method=delete` with `recycle=true` just flips the note's `recycle` flag;
-  /// `object_id` is a JSON array (batch-capable) even for one note. There is no
-  /// verified restore/purge yet, so this only ever trashes, never destroys.
+  /// Moves a note to trash. VERIFIED (Note.Ghost.txt, and again in
+  /// `.docs/reference/Recyling Bin Delete and Restore*.har`): this is a soft
+  /// delete — `method=delete` with `recycle=true` just flips the note's
+  /// `recycle` flag; `object_id` is a JSON array (batch-capable) even for
+  /// one note. See [purgeNote] for the same endpoint's OTHER behavior.
   Future<void> deleteNote(String noteId) async {
     await _client.call(
       api: 'SYNO.NoteStation.Note',
@@ -332,6 +333,71 @@ class NoteStationService {
         'recycle': true
       },
     );
+  }
+
+  /// Permanently deletes an ALREADY-trashed note. VERIFIED
+  /// (`.docs/reference/Recyling Bin Delete and Restore*.har`): same
+  /// endpoint/method as [deleteNote], but `recycle: false` — applied to a
+  /// note that's already in the recycle bin, this purges it instead of
+  /// trashing it (there is no separate purge method; the meaning of
+  /// `recycle:false` depends on the note's current state). Calling this on
+  /// a note that ISN'T already trashed has not been captured/tested.
+  Future<void> purgeNote(String noteId) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Note',
+      version: 3,
+      method: 'delete',
+      params: {
+        'object_id': [noteId],
+        'recycle': false,
+      },
+    );
+  }
+
+  /// Restores a trashed note back to its original notebook. VERIFIED: a
+  /// dedicated `method=restore` on the same `SYNO.NoteStation.Note` API (not
+  /// `Note.Version`'s own `restore`, which is a different endpoint for a
+  /// different purpose — see [restoreNoteVersion]). `object_id` is a JSON
+  /// array. The server evidently tracks where to put it back on its own
+  /// (each trashed note's `old_parent_id` field, visible on the note object,
+  /// though this call doesn't need to pass it explicitly).
+  Future<void> restoreNote(String noteId) async {
+    await _client.call(
+      api: 'SYNO.NoteStation.Note',
+      version: 3,
+      method: 'restore',
+      params: {
+        'object_id': [noteId],
+      },
+    );
+  }
+
+  /// Lists trashed notes. VERIFIED: same `Note.list` v3 endpoint as
+  /// [listNotes], `filter.recycle:true` instead of `false` — but the capture
+  /// ALSO included `owner` explicitly in the filter (`listNotes()` doesn't,
+  /// and has worked fine without it), so this mirrors the capture exactly
+  /// as its own method rather than folding into `listNotes()`, same
+  /// reasoning as [listNotesInSmart].
+  Future<List<Note>> listTrashedNotes({
+    required int ownerUid,
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    final data = await _client.call(
+      api: 'SYNO.NoteStation.Note',
+      version: 3,
+      method: 'list',
+      params: {
+        'filter': {'recycle': true, 'owner': ownerUid, 'archive': false},
+        'field': {'link_id': true, 'commit_msg': true},
+        'offset': offset,
+        'limit': limit,
+        'sort_by': 'title',
+        'sort_direction': 'desc',
+      },
+    );
+    final list = data['notes'] as List<dynamic>? ?? [];
+    return list.map((j) => Note.fromJson(j as Map<String, dynamic>)).toList();
   }
 
   /// Encrypts a currently-plain note with [password]. VERIFIED

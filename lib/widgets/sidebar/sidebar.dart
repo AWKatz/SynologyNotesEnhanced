@@ -19,7 +19,13 @@ import '../../providers/shelves_provider.dart';
 import '../../providers/smart_notebooks_provider.dart'
     show selectedSmartNotebookIdProvider, smartNotebooksProvider;
 import '../../providers/tags_provider.dart' show selectedTagIdProvider;
-import '../../providers/todos_provider.dart' show todosProvider;
+import '../../providers/todos_provider.dart'
+    show
+        todosProvider,
+        todoFilterProvider,
+        TodoFilter,
+        dueTodayCountProvider,
+        dueWithin7DaysCountProvider;
 import '../common/app_toast.dart';
 
 class AppSidebar extends ConsumerWidget {
@@ -57,6 +63,8 @@ class AppSidebar extends ConsumerWidget {
                       selectedSmartId == null),
           _FavoritesItem(isSelected: filter == NoteFilter.favorites),
           _LockedNotesItem(isSelected: filter == NoteFilter.locked),
+          _SharedNotesItem(isSelected: filter == NoteFilter.shared),
+          _TrashItem(isSelected: filter == NoteFilter.trash),
           const _TodoListsItem(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
@@ -383,6 +391,66 @@ class _LockedNotesItem extends ConsumerWidget {
   }
 }
 
+class _SharedNotesItem extends ConsumerWidget {
+  final bool isSelected;
+  const _SharedNotesItem({required this.isSelected});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // acl is already populated on every Note.list response (verified across
+    // several captures, e.g. Note Sharing/Revoke Share*.har), so — same as
+    // Favorites/Locked — this is a pure client-side narrowing of the
+    // already-fetched global note list, no dedicated query needed.
+    final count = ref
+            .watch(allNotesGlobalProvider)
+            .valueOrNull
+            ?.where((n) => n.acl.isShared)
+            .length ??
+        0;
+    return _SidebarTile(
+      icon: Icons.share_rounded,
+      label: 'Shared Notes',
+      count: count,
+      isSelected: isSelected,
+      onTap: () {
+        ref.read(selectedNotebookIdProvider.notifier).state = null;
+        ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(noteFilterProvider.notifier).state = NoteFilter.shared;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
+      },
+    );
+  }
+}
+
+class _TrashItem extends ConsumerWidget {
+  final bool isSelected;
+  const _TrashItem({required this.isSelected});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Trashed notes are NOT part of allNotesGlobalProvider's result (that
+    // fetch uses filter.recycle:false, same as the main note list) — this
+    // needs its own dedicated query, trashedNotesProvider.
+    final count = ref.watch(trashedNotesProvider).valueOrNull?.length ?? 0;
+    return _SidebarTile(
+      icon: Icons.delete_outline_rounded,
+      label: 'Trash',
+      count: count,
+      isSelected: isSelected,
+      onTap: () {
+        ref.read(selectedNotebookIdProvider.notifier).state = null;
+        ref.read(selectedNoteIdProvider.notifier).state = null;
+        ref.read(noteFilterProvider.notifier).state = NoteFilter.trash;
+        ref.read(selectedTagIdProvider.notifier).state = null;
+        ref.read(selectedSmartNotebookIdProvider.notifier).state = null;
+        ref.read(mobileTabIndexProvider.notifier).state = 1;
+      },
+    );
+  }
+}
+
 // ── To-Do Lists / Smart Notebooks (top-level nav shortcuts, mirroring the ────
 // real Note Station client's left rail — the note list/editor panels keep
 // this app's own Samsung Notes-style design; only this first-column nav
@@ -396,14 +464,47 @@ class _TodoListsItem extends ConsumerWidget {
     final activeCount = ref.watch(todosProvider).valueOrNull
             ?.where((t) => !t.done).length ??
         0;
-    return _SidebarTile(
-      icon: Icons.checklist_rounded,
-      label: 'To-Do Lists',
-      count: activeCount,
-      // Opens as its own panel (like Settings) rather than a persistent
-      // selection within this note-browsing nav, so it's never "selected".
-      isSelected: false,
-      onTap: () => context.push('/todos'),
+
+    void open(TodoFilter filter) {
+      ref.read(todoFilterProvider.notifier).state = filter;
+      context.push('/todos');
+    }
+
+    return Column(
+      children: [
+        _SidebarTile(
+          icon: Icons.checklist_rounded,
+          label: 'To-Do Lists',
+          count: activeCount,
+          // Opens as its own panel (like Settings) rather than a persistent
+          // selection within this note-browsing nav, so it's never "selected".
+          isSelected: false,
+          onTap: () => open(TodoFilter.all),
+        ),
+        // Smart sub-views mirroring DS Note's own To-do > Today/Next 7 days
+        // grouping — indented under the main tile above via the extra
+        // left padding (_SidebarTile's own padding stays the same).
+        Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: _SidebarTile(
+            icon: Icons.today_rounded,
+            label: 'Due Today',
+            count: ref.watch(dueTodayCountProvider),
+            isSelected: false,
+            onTap: () => open(TodoFilter.dueToday),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: _SidebarTile(
+            icon: Icons.date_range_rounded,
+            label: 'Next 7 Days',
+            count: ref.watch(dueWithin7DaysCountProvider),
+            isSelected: false,
+            onTap: () => open(TodoFilter.dueWithin7Days),
+          ),
+        ),
+      ],
     );
   }
 }

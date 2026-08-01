@@ -110,6 +110,46 @@ void main() {
     });
   });
 
+  group(
+      'Trash (verified against Recyling Bin Delete and Restore*.har)', () {
+    test('deleteNote: recycle=true (soft delete)', () async {
+      final (svc, captured) = makeService({});
+      await svc.deleteNote('N1');
+      final body = captured.single;
+      expect(body['method'], 'delete');
+      expect(jsonDecode(body['object_id']!), ['N1']);
+      expect(body['recycle'], 'true');
+    });
+
+    test('purgeNote: same delete method, recycle=false', () async {
+      final (svc, captured) = makeService({});
+      await svc.purgeNote('N1');
+      final body = captured.single;
+      expect(body['api'], 'SYNO.NoteStation.Note');
+      expect(body['method'], 'delete');
+      expect(jsonDecode(body['object_id']!), ['N1']);
+      expect(body['recycle'], 'false');
+    });
+
+    test('restoreNote: dedicated method=restore, object_id array', () async {
+      final (svc, captured) = makeService({});
+      await svc.restoreNote('N1');
+      final body = captured.single;
+      expect(body['api'], 'SYNO.NoteStation.Note');
+      expect(body['method'], 'restore');
+      expect(jsonDecode(body['object_id']!), ['N1']);
+    });
+
+    test('listTrashedNotes: filter.recycle=true + explicit owner', () async {
+      final (svc, captured) = makeService({'notes': []});
+      await svc.listTrashedNotes(ownerUid: 1026);
+      final body = captured.single;
+      expect(body['method'], 'list');
+      expect(jsonDecode(body['filter']!),
+          {'recycle': true, 'owner': 1026, 'archive': false});
+    });
+  });
+
   group('Notebook write methods key by object_id', () {
     test('deleteNotebook: object_id', () async {
       final (svc, captured) = makeService({});

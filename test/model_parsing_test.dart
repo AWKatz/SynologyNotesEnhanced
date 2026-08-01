@@ -81,4 +81,24 @@ void main() {
     expect(note.acl.users.single.name, 'admin');
     expect(note.acl.users.single.perm, 'rw');
   });
+
+  test(
+      'Note.fromJson parses recycle as isTrashed (verified against '
+      'Recyling Bin Delete and Restore*.har)', () {
+    final trashed = Note.fromJson({
+      'object_id': 'N1',
+      'parent_id': 'NB1',
+      'title': 'T',
+      'recycle': true,
+    });
+    expect(trashed.isTrashed, isTrue);
+
+    final live = Note.fromJson({
+      'object_id': 'N2',
+      'parent_id': 'NB1',
+      'title': 'T2',
+      'recycle': false,
+    });
+    expect(live.isTrashed, isFalse);
+  });
 }

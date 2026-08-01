@@ -30,6 +30,12 @@ abstract class NotesRepository {
     String? notebookId,
   });
   Future<void> deleteNote(String noteId);
+  /// Permanently deletes an already-trashed note — see
+  /// NoteStationService.purgeNote's doc comment.
+  Future<void> purgeNote(String noteId);
+  /// Restores a trashed note to its original notebook.
+  Future<void> restoreNote(String noteId);
+  Future<List<Note>> listTrashedNotes();
   Future<List<Tag>> listTags();
   Future<Tag> createTag(String name);
   Future<List<Note>> search({required String keyword});

@@ -127,6 +127,8 @@ class _NoteListHeader extends ConsumerWidget {
     final title = switch (filter) {
       NoteFilter.favorites => 'Favorites',
       NoteFilter.locked => 'Locked Notes',
+      NoteFilter.shared => 'Shared Notes',
+      NoteFilter.trash => 'Trash',
       null => selectedSmart != null
           ? selectedSmart.title
           : selectedTag != null
@@ -1064,30 +1066,47 @@ class _NoteCard extends ConsumerWidget {
                                 fontSize: 10.5, color: cs.onSurfaceVariant),
                           ),
                         ),
-                        PopupMenuButton<String>(
-                          icon: Icon(Icons.more_vert_rounded,
-                              size: 16, color: cs.onSurfaceVariant),
-                          tooltip: 'Note actions',
-                          constraints: const BoxConstraints(),
-                          padding: EdgeInsets.zero,
-                          onSelected: (action) {
-                            if (action == 'color') {
-                              showColorPicker(context, ref,
-                                  id: note.id,
-                                  colorsProvider: noteColorsProvider);
-                            } else if (action == 'delete') {
-                              _confirmDeleteNote(context, ref, note);
-                            }
-                          },
-                          itemBuilder: (context) => [
-                            PopupMenuItem(
-                              value: 'color',
-                              child: Text(noteColorLabel ?? 'Set Color'),
-                            ),
-                            const PopupMenuItem(
-                                value: 'delete', child: Text('Delete')),
-                          ],
-                        ),
+                        Builder(builder: (context) {
+                          final inTrash =
+                              ref.watch(noteFilterProvider) == NoteFilter.trash;
+                          return PopupMenuButton<String>(
+                            icon: Icon(Icons.more_vert_rounded,
+                                size: 16, color: cs.onSurfaceVariant),
+                            tooltip: 'Note actions',
+                            constraints: const BoxConstraints(),
+                            padding: EdgeInsets.zero,
+                            onSelected: (action) {
+                              if (action == 'color') {
+                                showColorPicker(context, ref,
+                                    id: note.id,
+                                    colorsProvider: noteColorsProvider);
+                              } else if (action == 'delete') {
+                                _confirmDeleteNote(context, ref, note);
+                              } else if (action == 'restore') {
+                                _restoreNote(context, ref, note);
+                              } else if (action == 'purge') {
+                                _confirmPurgeNote(context, ref, note);
+                              }
+                            },
+                            itemBuilder: (context) => inTrash
+                                ? const [
+                                    PopupMenuItem(
+                                        value: 'restore',
+                                        child: Text('Restore')),
+                                    PopupMenuItem(
+                                        value: 'purge',
+                                        child: Text('Delete Forever')),
+                                  ]
+                                : [
+                                    PopupMenuItem(
+                                      value: 'color',
+                                      child: Text(noteColorLabel ?? 'Set Color'),
+                                    ),
+                                    const PopupMenuItem(
+                                        value: 'delete', child: Text('Delete')),
+                                  ],
+                          );
+                        }),
                       ],
                     ),
                   ],
@@ -1146,6 +1165,8 @@ class _EmptyState extends ConsumerWidget {
     final message = switch (filter) {
       NoteFilter.favorites => 'No favorite notes yet',
       NoteFilter.locked => 'No locked notes',
+      NoteFilter.shared => 'No shared notes',
+      NoteFilter.trash => 'Trash is empty',
       null => ref.watch(selectedNotebookProvider) != null
           ? 'No notes in this notebook'
           : 'No notes found',
@@ -1214,6 +1235,61 @@ void _confirmDeleteNote(BuildContext context, WidgetRef ref, Note note) {
             }
           },
           child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+}
+
+// ── Trash: restore / permanently delete (NAS-only) ──────────────────────────
+
+Future<void> _restoreNote(BuildContext context, WidgetRef ref, Note note) async {
+  final repo = ref.read(repositoryProvider);
+  if (repo == null) return;
+  try {
+    await repo.restoreNote(note.id);
+    syncAfterMutation(ref);
+    if (context.mounted) AppToast.success(context, 'Note restored');
+  } catch (e) {
+    debugPrint('Restore note failed: $e');
+    if (context.mounted) AppToast.error(context, 'Could not restore the note.');
+  }
+}
+
+void _confirmPurgeNote(BuildContext context, WidgetRef ref, Note note) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Delete Forever?'),
+      content: Text(
+          'Permanently delete "${note.title}"? This cannot be undone.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.tonal(
+          onPressed: () async {
+            Navigator.of(dialogContext).pop();
+            final repo = ref.read(repositoryProvider);
+            if (repo == null) return;
+            try {
+              await repo.purgeNote(note.id);
+              if (ref.read(selectedNoteIdProvider) == note.id) {
+                ref.read(selectedNoteIdProvider.notifier).state = null;
+              }
+              syncAfterMutation(ref);
+              if (context.mounted) {
+                AppToast.success(context, 'Note permanently deleted');
+              }
+            } catch (e) {
+              debugPrint('Purge note failed: $e');
+              if (context.mounted) {
+                AppToast.error(context, 'Could not permanently delete the note.');
+              }
+            }
+          },
+          child: const Text('Delete Forever'),
         ),
       ],
     ),
