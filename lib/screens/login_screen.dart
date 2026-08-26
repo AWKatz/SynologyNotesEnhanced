@@ -125,9 +125,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       } else {
         setState(() => _errorMessage = e.message);
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Login failed with non-ApiException: $e');
       setState(() => _errorMessage =
-          'Could not reach NAS. Check the address and port.');
+          'Could not reach NAS. Check the address and port.\n($e)');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -170,10 +171,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() => _errorMessage = e.message);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Auth type check failed with non-ApiException: $e');
       if (!mounted) return;
       setState(() => _errorMessage =
-          'Could not reach NAS. Check the address and port.');
+          'Could not reach NAS. Check the address and port.\n($e)');
     }
   }
 

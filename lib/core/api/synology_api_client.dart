@@ -350,7 +350,16 @@ class SynologyApiClient {
       );
     }
 
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final Map<String, dynamic> json;
+    try {
+      json = jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (_) {
+      throw ApiException(
+        code: -1,
+        message:
+            'NAS returned an unexpected (non-JSON) response — check the host, port, and HTTPS setting.',
+      );
+    }
 
     if (json['success'] != true) {
       final errorMap = json['error'] as Map<String, dynamic>?;
