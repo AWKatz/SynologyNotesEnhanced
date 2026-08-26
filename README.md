@@ -23,15 +23,23 @@ The goal is twofold:
 
 - **Cross-platform** — one codebase for mobile and desktop.
 - **Browse & edit** notebooks, notes, tags, and shelves backed by the live Note Station API.
-- **Rich-text notes** — renders Note Station's HTML content.
+- **Rich-text notes** — renders Note Station's HTML content, with in-app WebView editing for
+  notes that use a confirmed-safe formatting subset (fidelity-first: anything outside it stays
+  read-only rather than risk silently stripping formatting on save — see `rich_html_schema.dart`).
+- **To-do lists** — create, check off, set due dates and priority.
+- **Smart notebooks** — saved-search notebooks with criteria-based matching.
+- **Trash** — move notes to trash, restore, or permanently purge.
+- **Version history** — browse and restore a note's prior saved versions.
+- **Sharing & permissions** — public share links and per-user/per-group permissions.
 - **Client-side encryption** — reads password-protected notes by decrypting the
   `Salted__` / AES-256-CBC blob locally (the password never leaves the device).
-- **`.nsx` import** — reads Note Station's ZIP-based export bundles.
+- **`.nsx` import/export** — both a local ZIP codec (works fully offline) and the NAS's own
+  server-side export/import job.
 - **Offline / local mode** — work with local notes without a NAS connection.
 - **Session persistence** — credentials stored via the platform secure store.
 
-Some capabilities (version history, sharing, more export/import formats) are still in
-progress — see the API coverage table below for current status.
+Working toward full parity with the stock DS Note client — see the API coverage table below
+for exactly what's implemented versus still open, kept up to date as features land.
 
 ## NoteStation API coverage
 
@@ -44,17 +52,25 @@ and wired into the app, not just verified by capture):
 | Auth | Login/logout, 2FA (OTP) type discovery |
 | Shelves | List |
 | Notebooks | List, create, rename, delete |
-| Notes | List, get, create, edit, move to trash, full-text search |
+| Notes | List, get, create, edit, move to trash, restore, permanently purge, full-text search |
+| Rich-text editing | In-app WebView editor for the confirmed-safe HTML subset; everything else renders read-only |
 | Attachments/images | Upload (embedded in a note save) and download/render inline |
 | Encryption | Client-side AES-256-CBC password-protect / unlock, fully local — DSM never sees a plaintext password or content |
 | Tags | List, create |
-| `.nsx` | Import (local ZIP decode, no server round-trip needed) |
+| To-do lists | List, create, edit, delete, due dates, priority |
+| Smart notebooks | List, create, criteria-based note matching |
+| Version history | List a note's versions, restore a prior version |
+| Sharing & permissions | Public share link, per-user/per-group permission grants |
+| `.nsx` | Import and export, both a local ZIP codec (no server round-trip) and the NAS's own server-side export/import job |
 
-Verified via live capture but **not yet** used by the app: batch startup sync
-(`SYNO.Entry.Request`), sidebar shortcuts, and server-side view/sort preference sync (this
-project keeps those preferences local instead). Not yet started: to-do lists, Smart
-(saved-search) notebooks, restore-from-trash/permanent purge, sharing, public links,
-permissions, version history, `.nsx` export, and DSM-side import formats.
+Not yet implemented: **DSM-side import of non-`.nsx` formats** (the server-side import job
+only handles `.nsx`; other formats DSM's own client may support, e.g. Evernote, aren't wired
+up), **audio note attachments** (the attachment picker is image-only; DS Note supports
+recording/attaching audio), and **to-do due-date reminders/notifications** (due dates are
+stored and shown, but nothing schedules a local or push reminder). Verified via live capture
+but deliberately **not** used by the app: batch startup sync (`SYNO.Entry.Request` — the app
+makes its calls individually instead), DSM's own sidebar-shortcuts sync, and server-side
+view/sort preference sync (kept local instead, by design).
 
 **[`.docs/NoteStation API documentation.md`](<.docs/NoteStation API documentation.md>)** is
 the complete, maintained reference behind the table above — every method/param/response
