@@ -30,7 +30,9 @@
     // risk rationale.
     'object-fit', 'object-position', 'font-size',
   ]);
-  var ALLOWED_TEXT_DECORATION = new Set(['line-through']);
+  // 'underline' VERIFIED via live round-trip test (2026-08-26) — see
+  // rich_html_schema.dart's matching comment. Kept in sync with that file.
+  var ALLOWED_TEXT_DECORATION = new Set(['line-through', 'underline']);
   // Only 'center' was directly captured, but left/right/justify are exactly
   // what cmdAlign's own justifyLeft/Center/Right produce below — a
   // controlled, known output set, not arbitrary user CSS.

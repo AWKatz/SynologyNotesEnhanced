@@ -325,9 +325,17 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
   /// encrypted flag never changes, but once the user has entered the
   /// password this session there's decrypted HTML to edit. _saveNote
   /// re-encrypts with _unlockPassword before writing back.
-  bool get _isEditable =>
-      (!_isEncrypted || _decryptedHtml != null) &&
-      RichHtmlSchema.isRoundTrippable(_displayHtml);
+  bool get _isEditable {
+    if (_isEncrypted && _decryptedHtml == null) return false;
+    final editable = RichHtmlSchema.isRoundTrippable(_displayHtml);
+    if (!editable) {
+      final reasons =
+          RichHtmlSchema.debugAllRejectionCategories(_displayHtml);
+      debugPrint(
+          '[rich-html] "${widget.note.title}" not editable: ${reasons.join('; ')}');
+    }
+    return editable;
+  }
 
   @override
   void initState() {

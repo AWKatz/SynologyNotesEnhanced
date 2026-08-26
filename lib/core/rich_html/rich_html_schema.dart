@@ -78,8 +78,15 @@ class RichHtmlSchema {
     'font-size',
   };
 
-  /// Only this value has been seen for text-decoration (strikethrough).
-  static const _allowedTextDecoration = {'line-through'};
+  /// 'line-through' (strikethrough) was the original captured value.
+  /// 'underline' is VERIFIED separately via a live round-trip test against a
+  /// real NAS (2026-08-26): created a note with an inline
+  /// `text-decoration: underline` span via the API directly (bypassing
+  /// editor.js's sanitizer, which would otherwise strip it before send),
+  /// fetched it back, and DSM returned the style unchanged — confirming the
+  /// server round-trips this property's values verbatim rather than
+  /// allowlisting specific ones itself.
+  static const _allowedTextDecoration = {'line-through', 'underline'};
 
   /// Only 'center' was directly captured, but left/right/justify are exactly
   /// what our own editor's justifyLeft/Center/Right commands produce — a
@@ -134,6 +141,102 @@ class RichHtmlSchema {
     return _checkChildren(fragment, onReject);
   }
 
+  /// Debugging aid: walks the *entire* tree (unlike [isRoundTrippable],
+  /// which stops at the first violation) and returns every distinct
+  /// structural reason it's not round-trippable — tag/attribute/property
+  /// names only, deliberately never attribute values or text content, since
+  /// real notes can hold sensitive user data. Lets a single note diagnose
+  /// every remaining schema gap in one pass instead of one rebuild per fix.
+  static Set<String> debugAllRejectionCategories(String contentHtml) {
+    final reasons = <String>{};
+    if (contentHtml.trim().isEmpty) return reasons;
+    final fragment = html_parser.parseFragment(contentHtml);
+    void walk(dom.Node node) {
+      for (final child in node.nodes) {
+        if (child is! dom.Element) continue;
+        final tag = (child.localName ?? '').toLowerCase();
+        if (!allowedTags.contains(tag)) {
+          reasons.add('disallowed tag <$tag>');
+          walk(child);
+          continue;
+        }
+        for (final attrName in child.attributes.keys) {
+          final name = attrName.toString().toLowerCase();
+          if (_allowedGlobalAttrs.contains(name)) continue;
+          if (_allowedTagAttrs[tag]?.contains(name) == true) continue;
+          if (name.startsWith('data-')) continue;
+          if (name == 'id') continue;
+          reasons.add('disallowed attribute "$name" on <$tag>');
+        }
+        if (tag == 'input') {
+          if (child.attributes['type'] != 'image') {
+            reasons.add('<input> with disallowed type');
+          } else {
+            final cls = child.attributes['class'] ?? '';
+            if (!_checkboxClass.hasMatch(cls)) {
+              reasons.add('<input> with unrecognized class');
+            }
+          }
+        }
+
+        if (tag == 'span') {
+          final cls = child.attributes['class'];
+          if (cls != null && cls.isNotEmpty && !_fontSizeClass.hasMatch(cls)) {
+            reasons.add('<span> with unrecognized class');
+          }
+        }
+
+        if (tag == 'img') {
+          final cls = child.attributes['class'] ?? '';
+          if (!_imageClass.hasMatch(cls)) {
+            reasons.add('<img> with unrecognized class');
+          }
+        }
+
+        final style = child.attributes['style'];
+        if (style != null && style.isNotEmpty) {
+          for (final declaration in style.split(';')) {
+            final trimmed = declaration.trim();
+            if (trimmed.isEmpty) continue;
+            final sep = trimmed.indexOf(':');
+            if (sep == -1) {
+              reasons.add('unparsable style declaration on <$tag>');
+              continue;
+            }
+            final prop = trimmed.substring(0, sep).trim().toLowerCase();
+            if (prop == 'white-space') continue;
+            final value = trimmed.substring(sep + 1).trim().toLowerCase();
+            if (!_allowedStyleProps.contains(prop)) {
+              reasons.add('disallowed style property "$prop" on <$tag>');
+              continue;
+            }
+            if (prop == 'text-decoration' &&
+                !_allowedTextDecoration.contains(value)) {
+              reasons.add('disallowed text-decoration value on <$tag>');
+            }
+            if (prop == 'text-align' && !_allowedTextAlign.contains(value)) {
+              reasons.add('disallowed text-align value on <$tag>');
+            }
+            if (prop == 'object-fit' && !_allowedObjectFit.contains(value)) {
+              reasons.add('disallowed object-fit value on <$tag>');
+            }
+            if (prop == 'object-position' &&
+                !_allowedObjectPosition.contains(value)) {
+              reasons.add('disallowed object-position value on <$tag>');
+            }
+            if (prop == 'font-size' && !_fontSizePx.hasMatch(value)) {
+              reasons.add('disallowed font-size value on <$tag>');
+            }
+          }
+        }
+        walk(child);
+      }
+    }
+
+    walk(fragment);
+    return reasons;
+  }
+
   static bool _checkChildren(dom.Node node, void Function(String)? onReject) {
     for (final child in node.nodes) {
       if (child is dom.Element) {
@@ -161,6 +264,23 @@ class RichHtmlSchema {
       final name = attrName.toString().toLowerCase();
       if (_allowedGlobalAttrs.contains(name)) continue;
       if (_allowedTagAttrs[tag]?.contains(name) == true) continue;
+      // data-* attributes are HTML-spec custom metadata: no browser or CSS
+      // rule ever gives one rendering/formatting meaning, unlike an unknown
+      // tag or style property might. Real-world notes pick these up as
+      // leftover cruft from pasting rich text copied out of Word/Google
+      // Docs/Pages/Notes (e.g. a `data-tt` paragraphStyle blob) — editor.js's
+      // sanitizeElement already silently strips any attribute outside its
+      // own allowlist the instant the note is edited, so rejecting the whole
+      // note over one here just blocks editing without preventing anything;
+      // let it through and rely on that same silent strip.
+      if (name.startsWith('data-')) continue;
+      // Same reasoning as data-*: a bare `id` has no rendering effect here —
+      // neither the read view's flutter_widget_from_html_core nor the
+      // WebView editor's editor.css define any selector keyed to arbitrary
+      // pasted IDs (`hr`'s TinyMCE-generated id is the one case that *is*
+      // meaningful, already covered by _allowedTagAttrs above). Also common
+      // Word/Google Docs/Pages paste cruft.
+      if (name == 'id') continue;
       onReject?.call('disallowed attribute "$name" on <$tag> '
           '(value: ${el.attributes[attrName]})');
       return false;
@@ -207,6 +327,15 @@ class RichHtmlSchema {
         }
         final prop = trimmed.substring(0, sep).trim().toLowerCase();
         final value = trimmed.substring(sep + 1).trim().toLowerCase();
+        // white-space is common Word/Google Docs/Pages paste cruft (used to
+        // preserve literal spacing from the source doc) and, unlike the
+        // other properties here, genuinely affects rendering — but
+        // editor.js's sanitizer already silently drops it the instant a note
+        // enters edit mode regardless of this check, so rejecting the whole
+        // note over it protects nothing; it only blocks editing. Letting it
+        // through means that spacing visually collapses to normal on first
+        // edit (cosmetic only — no note content is lost).
+        if (prop == 'white-space') continue;
         if (!_allowedStyleProps.contains(prop)) {
           onReject?.call('disallowed style property "$prop" on <$tag>');
           return false;

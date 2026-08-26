@@ -136,6 +136,33 @@ void main() {
     );
   });
 
+  test('line-through text-decoration is round-trippable', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<span style="text-decoration: line-through;">x</span>'),
+      isTrue,
+    );
+  });
+
+  test(
+      'underline text-decoration is round-trippable (VERIFIED via live '
+      'round-trip test against a real NAS, 2026-08-26 — see '
+      'rich_html_schema.dart)', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<span style="text-decoration: underline;">x</span>'),
+      isTrue,
+    );
+  });
+
+  test('an unrecognized text-decoration value is NOT round-trippable', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<span style="text-decoration: overline;">x</span>'),
+      isFalse,
+    );
+  });
+
   test('the x-large font-size class is round-trippable (regex fix)', () {
     expect(
       RichHtmlSchema.isRoundTrippable(
@@ -184,6 +211,37 @@ void main() {
     expect(
       RichHtmlSchema.isRoundTrippable('<span class="some-other-class">x</span>'),
       isFalse,
+    );
+  });
+
+  test(
+      'a data-* attribute IS round-trippable (inert paste metadata, e.g. '
+      'Word/Google Docs/Pages/Notes clipboard cruft — never CSS/rendering '
+      'meaningful, and editor.js already silently strips it on edit)', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<span data-tt=\'{"paragraphStyle":{"alignment":4}}\'>x</span>'),
+      isTrue,
+    );
+  });
+
+  test(
+      'a bare id attribute IS round-trippable on a non-hr tag (no rendering '
+      'meaning in either the read view or editor.css; paste cruft)', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable('<span id="docs-internal-guid-1">x</span>'),
+      isTrue,
+    );
+  });
+
+  test(
+      'a white-space style IS round-trippable (editor.js already silently '
+      'drops it on edit regardless, so blocking the note protects nothing)',
+      () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<span style="white-space: pre-wrap;">x</span>'),
+      isTrue,
     );
   });
 }
