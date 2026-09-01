@@ -10,6 +10,7 @@ import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/todos_screen.dart';
 import 'theme/app_theme.dart';
+import 'widgets/common/app_splash_overlay.dart';
 
 // Bridges Riverpod auth state into a ChangeNotifier so GoRouter can use
 // refreshListenable — the router is created once and redirect is re-evaluated
@@ -177,6 +178,11 @@ class SynologyNoteApp extends ConsumerWidget {
       darkTheme: AppTheme.dark(accent),
       themeMode: themeMode,
       routerConfig: router,
+      // Fades out the branded splash render over the first frame or two —
+      // the native splash (icon on solid color) only covers engine startup,
+      // this picks up the handoff with the full mockup art per platform.
+      builder: (context, child) =>
+          AppSplashOverlay(child: child ?? const SizedBox.shrink()),
     );
   }
 }

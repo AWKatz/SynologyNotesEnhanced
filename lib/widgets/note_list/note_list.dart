@@ -101,7 +101,7 @@ class NewNoteFab extends ConsumerWidget {
     return FloatingActionButton(
       onPressed: () => _createNote(context, ref),
       tooltip: 'New Note',
-      child: const Icon(Icons.edit_rounded),
+      child: const Icon(Icons.add_rounded),
     );
   }
 }

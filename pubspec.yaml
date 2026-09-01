@@ -68,14 +68,18 @@ flutter_launcher_icons:
     theme_color: "#2C76DD"
 
 # Native splash screen (Android/iOS/Web) shown while Flutter's first frame
-# renders. Uses the same placeholder icon as the app icon, centered on a
-# solid color sampled from its background gradient — the four splash_*.png
-# mockups in assets/icons/ are fixed-aspect-ratio device renders (with the
-# app name baked in) meant as presentation mockups, not raw material a
-# splash-screen generator can stretch/crop across arbitrary screen sizes.
+# renders — the OS shows this the instant the app launches, before any Dart
+# code runs, so it can't be skipped outright. Deliberately left iconless
+# (solid color only): the real branded splash is the Flutter-side overlay in
+# widgets/common/app_splash_overlay.dart (full mockup art, works on
+# macOS/Windows too, which this generator doesn't support at all) — putting
+# the same icon here as well just meant it flashed once natively and then
+# again in the overlay. Android 12+ is the one exception: the OS's
+# SplashScreen API mandates an icon on top of whatever color/background is
+# set here and there's no config to suppress it, so android_12.image is
+# still set to give it our icon rather than a generic placeholder.
 flutter_native_splash:
   color: "#0B1F3C"
-  image: assets/icons/app_icon.png
   android_12:
     image: assets/icons/app_icon.png
     icon_background_color: "#0B1F3C"
