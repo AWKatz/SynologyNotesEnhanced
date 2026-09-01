@@ -1524,276 +1524,286 @@ class _EditorMeta extends ConsumerWidget {
     return Container(
       color: cs.surfaceContainerLow,
       padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 8),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Notebook/date/tags share this Expanded so they truncate instead
-          // of forcing a RenderFlex overflow at narrow (phone) widths — the
-          // trailing icon cluster after it (tag/edit/overflow) is the set of
-          // actionable controls and must stay fully visible, never squeezed.
-          Expanded(
-            child: Row(
-              children: [
-                Flexible(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(4),
-                    onTap: () => showDialog<void>(
-                      context: context,
-                      builder: (context) => _MoveNoteDialog(note: note),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 2, horizontal: 2),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.folder_rounded,
-                              size: 13,
-                              color: cs.primary.withValues(alpha: 0.7)),
-                          const SizedBox(width: 4),
-                          Flexible(
-                            child: Text(
-                              notebook?.name ?? 'Unknown Notebook',
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                              style: TextStyle(
-                                  fontSize: 12, color: cs.onSurfaceVariant),
-                            ),
-                          ),
-                          const SizedBox(width: 2),
-                          Icon(Icons.unfold_more_rounded,
-                              size: 12, color: cs.onSurfaceVariant),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Icon(Icons.access_time_rounded,
-                    size: 13, color: cs.onSurfaceVariant),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Text(
-                    updatedAt != null
-                        ? DateFormat('MMM d, yyyy · HH:mm').format(updatedAt)
-                        : 'Unknown date',
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
-                  ),
-                ),
-                if (resolvedTags.isNotEmpty) ...[
-                  const SizedBox(width: 16),
-                  Flexible(
-                    child: Wrap(
-                      spacing: 4,
-                      children: resolvedTags
-                          .map((t) => Chip(
-                                label: Text(t),
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                                padding: EdgeInsets.zero,
-                                labelPadding:
-                                    const EdgeInsets.symmetric(horizontal: 6),
-                              ))
-                          .toList(),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // Transient — shown briefly while entering edit mode on a note
-          // with images (see _toggleEdit's image-resolution branch). Kept
-          // outside the More menu since it's a loading state, not an option.
-          if (canEdit && preparingEdit)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          // This slot always holds the one primary action for the current
-          // mode — Edit while just viewing, then Save/Done while editing
-          // (Save once something's actually changed, Done otherwise, so
-          // tapping it always does something sensible instead of Save
-          // silently no-op'ing on a clean note) — anchored at the far right
-          // with only the More menu beside it. Everything else (tags,
-          // favorite, color, encrypt, move) lives in that menu instead of
-          // competing for space in this row.
-          if (editing)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: OutlinedButton.icon(
-                onPressed: isDirty ? onSave : onToggleEdit,
-                icon: const Icon(Icons.check_rounded, size: 16),
-                label: Text(isDirty ? 'Save' : 'Done'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  side: BorderSide(color: cs.primary),
-                  shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  minimumSize: const Size(0, 28),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  textStyle: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ),
-            )
-          else if (canEdit)
-            Padding(
-              padding: const EdgeInsets.only(right: 4),
-              child: OutlinedButton.icon(
-                onPressed: onToggleEdit,
-                icon: const Icon(Icons.edit_rounded, size: 16),
-                label: const Text('Edit'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  side: BorderSide(color: cs.primary),
-                  shape: const StadiumBorder(),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  minimumSize: const Size(0, 28),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  textStyle: const TextStyle(
-                      fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          PopupMenuButton<String>(
-            tooltip: 'More',
-            icon: Icon(Icons.more_vert_rounded,
-                size: 16, color: cs.onSurfaceVariant),
-            constraints: const BoxConstraints(),
-            padding: const EdgeInsets.all(4),
-            itemBuilder: (context) => [
-              // Edit/Save/Done all live in the dedicated primary-action slot
-              // this menu sits beside — nothing to duplicate here for either.
-              const PopupMenuItem(
-                value: 'tags',
-                child: ListTile(
-                  leading: Icon(Icons.local_offer_rounded),
-                  title: Text('Edit Tags'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: 'favorite',
-                child: ListTile(
-                  leading: Icon(note.isFavorite
-                      ? Icons.star_rounded
-                      : Icons.star_border_rounded),
-                  title: Text(note.isFavorite ? 'Unfavorite' : 'Favourite'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: 'color',
-                child: ListTile(
-                  leading: Icon(noteColor != null
-                      ? Icons.label_rounded
-                      : Icons.label_outline_rounded),
-                  title: Text(noteColorLabel ?? 'Set Color'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              if (!note.isEncrypted)
-                const PopupMenuItem(
-                  value: 'encrypt',
-                  child: ListTile(
-                    leading: Icon(Icons.lock_outline_rounded),
-                    title: Text('Encrypt Note'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              const PopupMenuItem(
-                value: 'move',
-                child: ListTile(
-                  leading: Icon(Icons.drive_file_move_rounded),
-                  title: Text('Move to Notebook'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              // NAS-only (Permission/Share.Priv/Shard.Link APIs), and not
-              // offered for encrypted notes — sharing ciphertext content has
-              // never been captured, so this stays out of scope rather than
-              // guess at the interaction.
-              if (ref.watch(noteStationServiceProvider) != null &&
-                  !note.isEncrypted)
-                const PopupMenuItem(
-                  value: 'share',
-                  child: ListTile(
-                    leading: Icon(Icons.share_rounded),
-                    title: Text('Share'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              // NAS-only (Note.Version list/restore). Not offered for
-              // encrypted notes — a past revision's content comes back as a
-              // ciphertext blob with no verified way to preview/decrypt it
-              // here, so this stays out of scope rather than guess.
-              if (ref.watch(noteStationServiceProvider) != null &&
-                  !note.isEncrypted)
-                const PopupMenuItem(
-                  value: 'history',
-                  child: ListTile(
-                    leading: Icon(Icons.history_rounded),
-                    title: Text('Version History'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-            ],
-            onSelected: (value) async {
-              switch (value) {
-                case 'tags':
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) => _TagEditorDialog(note: note),
-                  );
-                case 'favorite':
-                  final service = ref.read(noteStationServiceProvider);
-                  if (service == null) return;
-                  try {
-                    await service.updateNote(
-                      noteId: note.id,
-                      isStarred: !note.isFavorite,
-                    );
-                    syncAfterMutation(ref);
-                  } catch (e) {
-                    // Previously only invalidated notesProvider/
-                    // selectedNoteProvider — not allNotesGlobalProvider, so
-                    // the sidebar's Favorites count silently lagged behind
-                    // an actual favorite/unfavorite until a manual sync.
-                    debugPrint('Update favorite failed: $e');
-                    if (context.mounted) {
-                      AppToast.error(context, 'Could not update favorite.');
-                    }
-                  }
-                case 'color':
-                  showColorPicker(context, ref,
-                      id: note.id, colorsProvider: noteColorsProvider);
-                case 'encrypt':
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) => _EncryptNoteDialog(note: note),
-                  );
-                case 'move':
-                  showDialog<void>(
+          // Notebook/date get this row to themselves — the trailing action
+          // cluster (edit/save/more) used to share it and crowded out the
+          // timestamp at phone widths, so it now lives on the row below.
+          Row(
+            children: [
+              Flexible(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () => showDialog<void>(
                     context: context,
                     builder: (context) => _MoveNoteDialog(note: note),
-                  );
-                case 'share':
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) => _ShareNoteDialog(note: note),
-                  );
-                case 'history':
-                  showDialog<void>(
-                    context: context,
-                    builder: (context) => _VersionHistoryDialog(note: note),
-                  );
-              }
-            },
+                  ),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.folder_rounded,
+                            size: 13, color: cs.primary.withValues(alpha: 0.7)),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            notebook?.name ?? 'Unknown Notebook',
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: TextStyle(
+                                fontSize: 12, color: cs.onSurfaceVariant),
+                          ),
+                        ),
+                        const SizedBox(width: 2),
+                        Icon(Icons.unfold_more_rounded,
+                            size: 12, color: cs.onSurfaceVariant),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Icon(Icons.access_time_rounded,
+                  size: 13, color: cs.onSurfaceVariant),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  updatedAt != null
+                      ? DateFormat('MMM d, yyyy · HH:mm').format(updatedAt)
+                      : 'Unknown date',
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              // Tags scroll horizontally in whatever space is left after the
+              // trailing action cluster, so a long tag list never pushes
+              // Edit/Save/More off the far right edge.
+              Expanded(
+                child: resolvedTags.isEmpty
+                    ? const SizedBox.shrink()
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final t in resolvedTags)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 4),
+                                child: Chip(
+                                  label: Text(t),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  padding: EdgeInsets.zero,
+                                  labelPadding: const EdgeInsets.symmetric(
+                                      horizontal: 6),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+              ),
+              // Transient — shown briefly while entering edit mode on a note
+              // with images (see _toggleEdit's image-resolution branch). Kept
+              // outside the More menu since it's a loading state, not an option.
+              if (canEdit && preparingEdit)
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              // This slot always holds the one primary action for the current
+              // mode — Edit while just viewing, then Save/Done while editing
+              // (Save once something's actually changed, Done otherwise, so
+              // tapping it always does something sensible instead of Save
+              // silently no-op'ing on a clean note) — anchored at the far right
+              // with only the More menu beside it. Everything else (tags,
+              // favorite, color, encrypt, move) lives in that menu instead of
+              // competing for space in this row.
+              if (editing)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: OutlinedButton.icon(
+                    onPressed: isDirty ? onSave : onToggleEdit,
+                    icon: const Icon(Icons.check_rounded, size: 16),
+                    label: Text(isDirty ? 'Save' : 'Done'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.primary,
+                      side: BorderSide(color: cs.primary),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                )
+              else if (canEdit)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: OutlinedButton.icon(
+                    onPressed: onToggleEdit,
+                    icon: const Icon(Icons.edit_rounded, size: 16),
+                    label: const Text('Edit'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.primary,
+                      side: BorderSide(color: cs.primary),
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      minimumSize: const Size(0, 28),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      textStyle: const TextStyle(
+                          fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              PopupMenuButton<String>(
+                tooltip: 'More',
+                icon: Icon(Icons.more_vert_rounded,
+                    size: 16, color: cs.onSurfaceVariant),
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.all(4),
+                itemBuilder: (context) => [
+                  // Edit/Save/Done all live in the dedicated primary-action slot
+                  // this menu sits beside — nothing to duplicate here for either.
+                  const PopupMenuItem(
+                    value: 'tags',
+                    child: ListTile(
+                      leading: Icon(Icons.local_offer_rounded),
+                      title: Text('Edit Tags'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'favorite',
+                    child: ListTile(
+                      leading: Icon(note.isFavorite
+                          ? Icons.star_rounded
+                          : Icons.star_border_rounded),
+                      title: Text(note.isFavorite ? 'Unfavorite' : 'Favourite'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'color',
+                    child: ListTile(
+                      leading: Icon(noteColor != null
+                          ? Icons.label_rounded
+                          : Icons.label_outline_rounded),
+                      title: Text(noteColorLabel ?? 'Set Color'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  if (!note.isEncrypted)
+                    const PopupMenuItem(
+                      value: 'encrypt',
+                      child: ListTile(
+                        leading: Icon(Icons.lock_outline_rounded),
+                        title: Text('Encrypt Note'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  const PopupMenuItem(
+                    value: 'move',
+                    child: ListTile(
+                      leading: Icon(Icons.drive_file_move_rounded),
+                      title: Text('Move to Notebook'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  // NAS-only (Permission/Share.Priv/Shard.Link APIs), and not
+                  // offered for encrypted notes — sharing ciphertext content has
+                  // never been captured, so this stays out of scope rather than
+                  // guess at the interaction.
+                  if (ref.watch(noteStationServiceProvider) != null &&
+                      !note.isEncrypted)
+                    const PopupMenuItem(
+                      value: 'share',
+                      child: ListTile(
+                        leading: Icon(Icons.share_rounded),
+                        title: Text('Share'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  // NAS-only (Note.Version list/restore). Not offered for
+                  // encrypted notes — a past revision's content comes back as a
+                  // ciphertext blob with no verified way to preview/decrypt it
+                  // here, so this stays out of scope rather than guess.
+                  if (ref.watch(noteStationServiceProvider) != null &&
+                      !note.isEncrypted)
+                    const PopupMenuItem(
+                      value: 'history',
+                      child: ListTile(
+                        leading: Icon(Icons.history_rounded),
+                        title: Text('Version History'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                ],
+                onSelected: (value) async {
+                  switch (value) {
+                    case 'tags':
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => _TagEditorDialog(note: note),
+                      );
+                    case 'favorite':
+                      final service = ref.read(noteStationServiceProvider);
+                      if (service == null) return;
+                      try {
+                        await service.updateNote(
+                          noteId: note.id,
+                          isStarred: !note.isFavorite,
+                        );
+                        syncAfterMutation(ref);
+                      } catch (e) {
+                        // Previously only invalidated notesProvider/
+                        // selectedNoteProvider — not allNotesGlobalProvider, so
+                        // the sidebar's Favorites count silently lagged behind
+                        // an actual favorite/unfavorite until a manual sync.
+                        debugPrint('Update favorite failed: $e');
+                        if (context.mounted) {
+                          AppToast.error(context, 'Could not update favorite.');
+                        }
+                      }
+                    case 'color':
+                      showColorPicker(context, ref,
+                          id: note.id, colorsProvider: noteColorsProvider);
+                    case 'encrypt':
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => _EncryptNoteDialog(note: note),
+                      );
+                    case 'move':
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => _MoveNoteDialog(note: note),
+                      );
+                    case 'share':
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => _ShareNoteDialog(note: note),
+                      );
+                    case 'history':
+                      showDialog<void>(
+                        context: context,
+                        builder: (context) => _VersionHistoryDialog(note: note),
+                      );
+                  }
+                },
+              ),
+            ],
           ),
         ],
       ),

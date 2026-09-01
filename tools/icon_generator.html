@@ -1,0 +1,1591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SynologyNotesEnhanced – Icon &amp; Splash Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg:#0f1117; --surface:#1a1d27; --surface2:#22263a;
+    --accent:#2c76dd; --accent2:#6ea8f7; --text:#e8eaf0;
+    --text2:#9ba3c0; --border:#2e3350; --green:#4cde9a;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;}
+  h1{font-size:1.4rem;font-weight:700;}
+  h2{font-size:.85rem;font-weight:600;color:var(--accent2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;}
+  h3{font-size:.85rem;font-weight:600;color:var(--text2);margin-bottom:6px;}
+  .app-header{display:flex;align-items:center;gap:12px;padding:14px 22px;background:var(--surface);border-bottom:1px solid var(--border);}
+  .app-header .logo{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:.85rem;color:#fff;}
+  .layout{display:grid;grid-template-columns:440px 1fr;height:calc(100vh - 57px);}
+  .sidebar{background:var(--surface);border-right:1px solid var(--border);overflow-y:auto;padding:16px;}
+  .main{overflow-y:auto;padding:22px;}
+  .panel{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:14px;}
+  label{display:block;font-size:.78rem;color:var(--text2);margin-bottom:4px;margin-top:10px;}
+  label:first-child{margin-top:0;}
+  input[type=color]{width:100%;height:32px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;padding:2px;}
+  input[type=range]{width:100%;accent-color:var(--accent);}
+  input[type=number],input[type=text],select{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:.82rem;}
+  select option{background:var(--surface2);}
+  .tab-bar{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;}
+  .tab{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;font-size:.8rem;color:var(--text2);transition:.15s;}
+  .tab.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .canvas-wrap{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;}
+  .preview-block{text-align:center;}
+  .preview-block .lbl{font-size:.7rem;color:var(--text2);margin-top:6px;white-space:pre-line;}
+  canvas{display:block;}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.83rem;font-weight:600;transition:.15s;}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{background:#255fb3;}
+  .btn-success{background:var(--green);color:#0a1a10;}
+  .btn-success:hover{filter:brightness(1.1);}
+  .btn-outline{background:transparent;border:1px solid var(--border);color:var(--text2);}
+  .btn-outline:hover{border-color:var(--accent);color:var(--accent);}
+  .action-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;align-items:center;}
+  .badge{font-size:.68rem;padding:2px 7px;border-radius:10px;font-weight:600;}
+  .badge-blue{background:#1c3a6e;color:var(--accent2);}
+  .badge-green{background:#0e3020;color:var(--green);}
+  .export-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:12px;}
+  .export-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;}
+  .export-card:hover{border-color:var(--accent);}
+  .export-card .info{font-size:.78rem;}
+  .export-card .sz{font-size:.7rem;color:var(--text2);}
+  .divider{height:1px;background:var(--border);margin:14px 0;}
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-top:10px;}
+  .scope-sel{font-size:.7rem;background:var(--surface);color:var(--text2);border:1px solid var(--border);border-radius:5px;padding:2px 4px;cursor:pointer;margin-left:auto;margin-right:8px;}
+  .palette-swatch{width:22px;height:22px;border-radius:5px;cursor:pointer;border:1px solid rgba(255,255,255,.12);flex-shrink:0;transition:transform .1s,box-shadow .12s;}
+  .palette-swatch:hover{transform:scale(1.2);box-shadow:0 2px 8px rgba(0,0,0,.5);}
+  .palette-group-label{font-size:.62rem;color:var(--text2);letter-spacing:.05em;margin:6px 0 3px;text-transform:uppercase;}
+  .toggle{position:relative;width:38px;height:20px;cursor:pointer;flex-shrink:0;}
+  .toggle input{opacity:0;width:0;height:0;}
+  .slider{position:absolute;inset:0;background:#333;border-radius:20px;transition:.2s;}
+  .slider:before{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;}
+  input:checked+.slider{background:var(--accent);}
+  input:checked+.slider:before{transform:translateX(18px);}
+  .info-note{font-size:.72rem;color:var(--text2);background:var(--surface);border-left:3px solid var(--accent);padding:6px 10px;border-radius:0 6px 6px 0;margin-top:8px;line-height:1.5;}
+  .info-note code{background:rgba(255,255,255,.08);padding:1px 4px;border-radius:3px;}
+  .status{font-size:.75rem;color:var(--accent2);margin-left:auto;padding:4px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);}
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-track{background:var(--surface);}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+
+  .sidebar h2{cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;}
+  .sidebar h2::after{content:'▾';font-size:.9rem;color:var(--text2);transition:transform .22s ease;flex-shrink:0;margin-left:6px;}
+  .panel.collapsed h2{margin-bottom:0;}
+  .panel.collapsed h2::after{transform:rotate(-90deg);}
+  .panel-body{overflow:hidden;max-height:4000px;opacity:1;transition:max-height .28s ease, opacity .18s ease;}
+  .panel.collapsed .panel-body{max-height:0;opacity:0;}
+
+  .range-wrap{display:flex;align-items:center;gap:8px;}
+  .range-wrap input[type=range]{flex:1;min-width:0;}
+  input.range-num{width:56px !important;flex-shrink:0;padding:3px 5px !important;font-size:.76rem;text-align:left;}
+
+  .checker-bg{
+    background-image:
+      linear-gradient(45deg,#3a3d4a 25%,transparent 25%),
+      linear-gradient(-45deg,#3a3d4a 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#3a3d4a 75%),
+      linear-gradient(-45deg,transparent 75%,#3a3d4a 75%);
+    background-size:12px 12px;
+    background-position:0 0,0 6px,6px -6px,-6px 0px;
+    background-color:#24273a;
+  }
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="logo">SN</div>
+  <div>
+    <h1>SynologyNotesEnhanced – Icon &amp; Splash Generator</h1>
+    <div style="font-size:.73rem;color:var(--text2);">iOS · Android · macOS · Windows · Web — exact filenames for this repo</div>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+    <span id="genStatus" class="status">Ready</span>
+    <span class="badge badge-blue">v1.0</span>
+    <span class="badge badge-green">Flutter</span>
+  </div>
+</header>
+
+<div class="layout">
+<!-- SIDEBAR -->
+<aside class="sidebar">
+
+  <div class="panel">
+    <h2>App Palette</h2>
+    <p class="palette-group-label">Accent Colors (lib/theme/app_theme.dart)</p>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;">
+      <div class="palette-swatch" style="background:#2C76DD" title="Blue (default seed) #2C76DD" onmousedown="applyPaletteColor('#2C76DD',event)"></div>
+      <div class="palette-swatch" style="background:#EF9906" title="Amber #EF9906" onmousedown="applyPaletteColor('#EF9906',event)"></div>
+      <div class="palette-swatch" style="background:#64962C" title="Lime #64962C" onmousedown="applyPaletteColor('#64962C',event)"></div>
+      <div class="palette-swatch" style="background:#259349" title="Green #259349" onmousedown="applyPaletteColor('#259349',event)"></div>
+      <div class="palette-swatch" style="background:#0C9097" title="Teal #0C9097" onmousedown="applyPaletteColor('#0C9097',event)"></div>
+      <div class="palette-swatch" style="background:#6C3DB8" title="Violet #6C3DB8" onmousedown="applyPaletteColor('#6C3DB8',event)"></div>
+      <div class="palette-swatch" style="background:#BD2887" title="Magenta #BD2887" onmousedown="applyPaletteColor('#BD2887',event)"></div>
+      <div class="palette-swatch" style="background:#DB2433" title="Red #DB2433" onmousedown="applyPaletteColor('#DB2433',event)"></div>
+    </div>
+    <p class="palette-group-label">Neutrals</p>
+    <div style="display:flex;flex-wrap:wrap;gap:5px;">
+      <div class="palette-swatch" style="background:#0D1117" title="Near-black #0D1117" onmousedown="applyPaletteColor('#0D1117',event)"></div>
+      <div class="palette-swatch" style="background:#1B2029" title="Dark surface #1B2029" onmousedown="applyPaletteColor('#1B2029',event)"></div>
+      <div class="palette-swatch" style="background:#6B6B6B" title="Neutral seed #6B6B6B" onmousedown="applyPaletteColor('#6B6B6B',event)"></div>
+      <div class="palette-swatch" style="background:#E1E1E1" title="Light grey #E1E1E1" onmousedown="applyPaletteColor('#E1E1E1',event)"></div>
+      <div class="palette-swatch" style="background:#FFFFFF" title="White #FFFFFF" onmousedown="applyPaletteColor('#FFFFFF',event)"></div>
+      <div class="palette-swatch" style="background:#1B4F8A" title="Current adaptive_icon_background #1B4F8A" onmousedown="applyPaletteColor('#1B4F8A',event)"></div>
+    </div>
+    <p style="font-size:.68rem;color:var(--text2);margin-top:8px;">Click any color field, then tap a swatch to apply.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Saved Designs</h2>
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <input type="text" id="designNameInput" placeholder="Design name…" style="flex:1;" onkeydown="if(event.key==='Enter')saveDesign()"/>
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:.78rem;white-space:nowrap;" onclick="saveDesign()">Save</button>
+    </div>
+    <div id="saveMsg" style="font-size:.72rem;color:var(--green);margin-bottom:6px;display:none;"></div>
+    <div id="designList"></div>
+    <div style="display:flex;gap:6px;margin-top:8px;">
+      <button class="btn btn-outline" style="flex:1;font-size:.75rem;padding:5px 8px;" onclick="exportDesigns()">⬇ Export JSON</button>
+      <label class="btn btn-outline" style="flex:1;font-size:.75rem;padding:5px 8px;cursor:pointer;text-align:center;">
+        ⬆ Import JSON<input type="file" accept=".json" style="display:none;" onchange="importDesigns(this)"/>
+      </label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Background</h2>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Preview Dark Mode</span>
+      <label class="toggle"><input type="checkbox" id="darkToggle" checked onchange="scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Transparent Icon (no background fill)</span>
+      <label class="toggle"><input type="checkbox" id="transparentBg" onchange="updateBgControlsState();scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <div class="info-note">When on, <strong>App Icon</strong> exports skip the background fill entirely (alpha 0) — the color/gradient controls below are ignored for icons. Splash screens always keep a background fill.</div>
+    <label>Light BG</label>
+    <input type="color" id="lightBg" value="#4a8fe0" oninput="scheduleRender()"/>
+    <label>Dark BG</label>
+    <input type="color" id="darkBg" value="#12345f" oninput="scheduleRender()"/>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Gradient</span>
+      <label class="toggle"><input type="checkbox" id="gradEnabled" checked onchange="scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <label>Light BG 2 (gradient end)</label>
+    <input type="color" id="lightBg2" value="#1B4F8A" oninput="scheduleRender()"/>
+    <label>Dark BG 2 (gradient end)</label>
+    <input type="color" id="darkBg2" value="#050b1a" oninput="scheduleRender()"/>
+    <label>Gradient Angle° <span id="gradAngleL" style="color:var(--accent2)">135</span></label>
+    <input type="range" id="gradAngle" min="0" max="360" step="5" value="135" oninput="document.getElementById('gradAngleL').textContent=this.value;scheduleRender()"/>
+  </div>
+
+  <div class="panel">
+    <h2>Focal Objects</h2>
+    <p style="font-size:.72rem;color:var(--text2);margin-bottom:8px;">Layer as many as you like — each has its own position, rotation, scale and color. Order below is back-to-front.</p>
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <select id="objectTypePicker" style="flex:1;"></select>
+      <button class="btn btn-primary" style="padding:6px 12px;font-size:.78rem;white-space:nowrap;" onclick="addObject(document.getElementById('objectTypePicker').value)">＋ Add</button>
+    </div>
+    <div id="objectsContainer"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Lettermark</h2>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Show Lettermark</span>
+      <select id="letterScope" class="scope-sel" onchange="scheduleRender()">
+        <option value="both">Both</option>
+        <option value="splash" selected>Splash Only</option>
+        <option value="icon">Icon Only</option>
+      </select>
+      <label class="toggle"><input type="checkbox" id="showLetters" checked onchange="scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <label>Text</label>
+    <input type="text" id="letterText" value="SNE" oninput="scheduleRender()"/>
+    <label>Font</label>
+    <select id="letterFont" onchange="scheduleRender()">
+      <option value="'Segoe UI', sans-serif">Segoe UI</option>
+      <option value="-apple-system, 'SF Pro Display', sans-serif">SF Pro (Apple)</option>
+      <option value="'Roboto', sans-serif">Roboto</option>
+      <option value="'Arial Rounded MT Bold', sans-serif">Arial Rounded</option>
+      <option value="monospace">Monospace</option>
+    </select>
+    <label>Size% <span id="letterSzL" style="color:var(--accent2)">0.11</span></label>
+    <input type="range" id="letterSize" min="0.04" max="0.22" step="0.005" value="0.11" oninput="document.getElementById('letterSzL').textContent=this.value;scheduleRender()"/>
+    <label>X% <span id="letterXL" style="color:var(--accent2)">50</span></label>
+    <input type="range" id="letterX" min="5" max="95" step="1" value="50" oninput="document.getElementById('letterXL').textContent=this.value;scheduleRender()"/>
+    <label>Y% <span id="letterYL" style="color:var(--accent2)">80</span></label>
+    <input type="range" id="letterY" min="5" max="95" step="1" value="80" oninput="document.getElementById('letterYL').textContent=this.value;scheduleRender()"/>
+    <label>Text Color (Light theme)</label>
+    <input type="color" id="letterColorLight" value="#ffffff" oninput="scheduleRender()"/>
+    <label>Text Color (Dark theme)</label>
+    <input type="color" id="letterColorDark" value="#ffffff" oninput="scheduleRender()"/>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Drop Shadow</span>
+      <label class="toggle"><input type="checkbox" id="letterShadow" checked onchange="scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <div class="divider"></div>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Badge Background</span>
+      <label class="toggle"><input type="checkbox" id="letterBadge" onchange="scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <label>Badge Shape</label>
+    <select id="letterBadgeShape" onchange="scheduleRender()">
+      <option value="pill">Pill</option>
+      <option value="circle">Circle</option>
+      <option value="roundsq" selected>Rounded Square</option>
+    </select>
+    <label>Badge Color</label>
+    <input type="color" id="letterBadgeColor" value="#000000" oninput="scheduleRender()"/>
+    <label>Badge Opacity <span id="letterBadgeAlphaL" style="color:var(--accent2)">0.35</span></label>
+    <input type="range" id="letterBadgeAlpha" min="0.05" max="1" step="0.05" value="0.35" oninput="document.getElementById('letterBadgeAlphaL').textContent=parseFloat(this.value).toFixed(2);scheduleRender()"/>
+  </div>
+
+  <div class="panel">
+    <h2>Splash Branding</h2>
+    <label>App Name</label>
+    <input type="text" id="appName" value="Notes Enhanced" oninput="scheduleRender()"/>
+    <label>Tagline</label>
+    <input type="text" id="tagline" value="Your Synology notes, everywhere" oninput="scheduleRender()"/>
+    <div class="toggle-row">
+      <span style="font-size:.82rem;">Show Tagline</span>
+      <label class="toggle"><input type="checkbox" id="showTagline" checked onchange="scheduleRender()"><span class="slider"></span></label>
+    </div>
+    <label>Name Size% <span id="nameSzL" style="color:var(--accent2)">0.075</span></label>
+    <input type="range" id="nameFontSize" min="0.03" max="0.14" step="0.005" value="0.075" oninput="document.getElementById('nameSzL').textContent=this.value;scheduleRender()"/>
+    <label>Name Y% <span id="nameYL" style="color:var(--accent2)">78</span></label>
+    <input type="range" id="nameY" min="55" max="95" step="1" value="78" oninput="document.getElementById('nameYL').textContent=this.value;scheduleRender()"/>
+    <label>Tagline Y% <span id="taglineYL" style="color:var(--accent2)">85</span></label>
+    <input type="range" id="taglineY" min="55" max="98" step="1" value="85" oninput="document.getElementById('taglineYL').textContent=this.value;scheduleRender()"/>
+    <label>Text Color (Light theme)</label>
+    <input type="color" id="textColorLight" value="#ffffff" oninput="scheduleRender()"/>
+    <label>Text Color (Dark theme)</label>
+    <input type="color" id="textColorDark" value="#ffffff" oninput="scheduleRender()"/>
+    <label>Tagline Color</label>
+    <input type="color" id="taglineColor" value="#cfe0f7" oninput="scheduleRender()"/>
+  </div>
+
+  <div class="panel">
+    <h2>Icon Shape (preview only)</h2>
+    <label>Corner Radius% <span id="cornerL" style="color:var(--accent2)">22</span></label>
+    <input type="range" id="cornerRadius" min="0" max="50" step="1" value="22" oninput="document.getElementById('cornerL').textContent=this.value;scheduleRender()"/>
+    <div class="info-note">Exports are always full-bleed <strong>square</strong> — iOS/Android/Windows mask the corners themselves. This slider only rounds the on-screen preview. macOS is the one platform that needs the corners baked in, and its exports do that automatically (with a squircle + small inset margin).</div>
+  </div>
+
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="tab-bar">
+    <div class="tab active" onclick="setTab('icon')">App Icon</div>
+    <div class="tab" onclick="setTab('splash')">Splash Screen</div>
+    <div class="tab" onclick="setTab('export')">Export</div>
+  </div>
+
+  <div id="tab-icon">
+    <div class="action-row">
+      <button id="safeZoneBtn" class="btn btn-outline" onclick="toggleSafeZones()">🛡 Safe Zones</button>
+      <button class="btn btn-success" onclick="downloadAllIcons()">⬇ All Icons</button>
+      <button class="btn btn-outline" onclick="zipAllIcons()">📦 ZIP Icons</button>
+    </div>
+    <div id="iconPreviews" class="canvas-wrap"></div>
+  </div>
+
+  <div id="tab-splash" style="display:none">
+    <div class="action-row">
+      <button class="btn btn-success" onclick="downloadAllSplash()">⬇ All Splash</button>
+      <button class="btn btn-outline" onclick="zipAllSplash()">📦 ZIP Splash</button>
+    </div>
+    <div id="splashPreviews" class="canvas-wrap"></div>
+  </div>
+
+  <div id="tab-export" style="display:none">
+    <h2 style="margin-bottom:4px;">Export Manifest</h2>
+    <p style="font-size:.8rem;color:var(--text2);margin-bottom:14px;">Filenames match this repo's existing asset paths exactly — click a row to download that PNG, then drop it straight into place.</p>
+
+    <h3>🎯 Flutter Launcher Icons Master → <code>assets/icons/</code></h3>
+    <div class="export-grid" id="exportMaster"></div>
+    <div class="info-note">
+      <code>pubspec.yaml</code> generates iOS + Android from these via <code>flutter_launcher_icons</code>. After exporting, run:<br>
+      <code>dart run flutter_launcher_icons</code><br>
+      If you export <code>app_icon_foreground.png</code> (transparent), also set <code>adaptive_icon_foreground: "assets/icons/app_icon_foreground.png"</code> and <code>adaptive_icon_background</code> to your background hex in <code>pubspec.yaml</code> for a proper Android adaptive icon.
+    </div>
+
+    <div class="divider"></div>
+    <h3>📱 iOS Manual Fallback → <code>ios/Runner/Assets.xcassets/AppIcon.appiconset/</code></h3>
+    <p style="font-size:.72rem;color:var(--text2);margin-bottom:6px;">Usually not needed — flutter_launcher_icons regenerates these. Kept here in case you ever need to hand-place one.</p>
+    <div class="export-grid" id="exportIOS"></div>
+
+    <div class="divider"></div>
+    <h3>🍎 macOS → <code>macos/Runner/Assets.xcassets/AppIcon.appiconset/</code></h3>
+    <div class="export-grid" id="exportMac"></div>
+
+    <div class="divider"></div>
+    <h3>🪟 Windows → <code>windows/runner/resources/</code></h3>
+    <div class="export-grid" id="exportWin"></div>
+    <div class="info-note">Windows needs a single multi-size <code>.ico</code>, not PNGs. After exporting the sizes above, combine them, e.g.:<br><code>magick app_icon_16.png app_icon_32.png app_icon_48.png app_icon_64.png app_icon_128.png app_icon_256.png app_icon.ico</code><br>then replace <code>windows/runner/resources/app_icon.ico</code>.</div>
+
+    <div class="divider"></div>
+    <h3>🌐 Web / PWA → <code>web/</code></h3>
+    <div class="export-grid" id="exportWeb"></div>
+
+    <div class="divider"></div>
+    <h3>🖼 Splash Screens</h3>
+    <div class="export-grid" id="exportSplash"></div>
+    <div class="info-note">This project doesn't wire up <code>flutter_native_splash</code> yet — these are plain reference images. Add the package and a <code>flutter_native_splash.yaml</code> pointing at your chosen background/icon if you want a native splash screen.</div>
+  </div>
+</main>
+</div>
+
+<script>
+// ─── Drawing helpers ──────────────────────────────────────────────────
+function drawRoundRect(ctx, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, Math.min(w,h)/2));
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);     ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// ─── Focal object shape library (notes-app themed) ─────────────────
+// Every shape function draws centered at local origin (0,0), sized to
+// roughly `sz` across, using the caller's current ctx.globalAlpha as the
+// base opacity for the whole object. `color` is the primary fill/stroke,
+// `accent` is the secondary detail color, `strokeW` is a pre-scaled
+// line width. Callers wrap with translate/rotate — shapes never touch
+// object position or rotation themselves.
+
+function shapeFoldedNote(ctx, sz, color, accent, strokeW) {
+  const pageW = sz * 0.62, pageH = sz * 0.78, x0 = -pageW / 2, y0 = -pageH / 2;
+  const fold = pageW * 0.24, r = pageW * 0.07;
+  const baseA = ctx.globalAlpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, y0);
+  ctx.lineTo(x0 + pageW - fold, y0);
+  ctx.lineTo(x0 + pageW, y0 + fold);
+  ctx.lineTo(x0 + pageW, y0 + pageH - r);
+  ctx.arcTo(x0 + pageW, y0 + pageH, x0 + pageW - r, y0 + pageH, r);
+  ctx.lineTo(x0 + r, y0 + pageH);
+  ctx.arcTo(x0, y0 + pageH, x0, y0 + pageH - r, r);
+  ctx.lineTo(x0, y0 + r);
+  ctx.arcTo(x0, y0, x0 + r, y0, r);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.globalAlpha = baseA * 0.6;
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.moveTo(x0 + pageW - fold, y0);
+  ctx.lineTo(x0 + pageW, y0 + fold);
+  ctx.lineTo(x0 + pageW - fold, y0 + fold);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.globalAlpha = baseA * 0.85;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW;
+  ctx.lineCap = 'round';
+  const insetX = pageW * 0.16;
+  [[0.40, 0.68], [0.54, 0.68], [0.68, 0.68], [0.82, 0.40]].forEach(([f, wf]) => {
+    const ly = y0 + pageH * f;
+    ctx.beginPath();
+    ctx.moveTo(x0 + insetX, ly);
+    ctx.lineTo(x0 + insetX + pageW * wf, ly);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = baseA;
+}
+
+function shapeNotebook(ctx, sz, color, accent, strokeW) {
+  const pageW = sz * 0.5, pageH = sz * 0.7, x0 = -pageW / 2, y0 = -pageH / 2;
+  const r = pageW * 0.08;
+  const baseA = ctx.globalAlpha;
+  ctx.fillStyle = color;
+  drawRoundRect(ctx, x0, y0, pageW, pageH, r);
+  ctx.fill();
+
+  const rings = 6;
+  ctx.fillStyle = accent;
+  ctx.globalAlpha = baseA * 0.9;
+  for (let i = 0; i < rings; i++) {
+    const rx = x0 + pageW * (0.5 / rings + i / rings);
+    ctx.beginPath();
+    ctx.arc(rx, y0, pageW * 0.035, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = baseA * 0.85;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW;
+  ctx.lineCap = 'round';
+  const marginX = x0 + pageW * 0.26;
+  ctx.beginPath();
+  ctx.moveTo(marginX, y0 + pageH * 0.18);
+  ctx.lineTo(marginX, y0 + pageH * 0.92);
+  ctx.stroke();
+
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = baseA * 0.55;
+  ctx.lineWidth = strokeW * 0.85;
+  [0.30, 0.42, 0.54, 0.66, 0.78].forEach(f => {
+    const ly = y0 + pageH * f;
+    ctx.beginPath();
+    ctx.moveTo(x0 + pageW * 0.34, ly);
+    ctx.lineTo(x0 + pageW * 0.9, ly);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = baseA;
+}
+
+function shapeSplitWindow(ctx, sz, color, accent, strokeW) {
+  const boxW = sz * 0.72, boxH = sz * 0.72, x0 = -boxW / 2, y0 = -boxH / 2;
+  const r = boxW * 0.16;
+  const baseA = ctx.globalAlpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeW;
+  drawRoundRect(ctx, x0 + strokeW / 2, y0 + strokeW / 2, boxW - strokeW, boxH - strokeW, r);
+  ctx.stroke();
+
+  const divX = x0 + boxW * 0.34;
+  ctx.beginPath();
+  ctx.moveTo(divX, y0 + strokeW);
+  ctx.lineTo(divX, y0 + boxH - strokeW);
+  ctx.stroke();
+
+  ctx.globalAlpha = baseA * 0.85;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 0.85;
+  [0.24, 0.40, 0.56, 0.72].forEach(f => {
+    const ly = y0 + boxH * f;
+    ctx.beginPath();
+    ctx.moveTo(x0 + boxW * 0.10, ly);
+    ctx.lineTo(divX - boxW * 0.06, ly);
+    ctx.stroke();
+  });
+
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = baseA * 0.7;
+  [0.28, 0.42, 0.56].forEach((f, i) => {
+    const ly = y0 + boxH * f;
+    ctx.beginPath();
+    ctx.moveTo(divX + boxW * 0.10, ly);
+    ctx.lineTo(x0 + boxW * (i === 2 ? 0.70 : 0.90), ly);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = baseA;
+}
+
+function shapeChecklist(ctx, sz, color, accent, strokeW) {
+  const pageW = sz * 0.6, pageH = sz * 0.76, x0 = -pageW / 2, y0 = -pageH / 2, r = pageW * 0.1;
+  const baseA = ctx.globalAlpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeW;
+  drawRoundRect(ctx, x0, y0, pageW, pageH, r);
+  ctx.stroke();
+
+  const boxSz = pageW * 0.16;
+  [0.22, 0.42, 0.62, 0.82].forEach((f, i) => {
+    const by = y0 + pageH * f, bx = x0 + pageW * 0.20;
+    if (i < 3) {
+      ctx.fillStyle = accent;
+      drawRoundRect(ctx, bx - boxSz / 2, by - boxSz / 2, boxSz, boxSz, boxSz * 0.28);
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeW * 0.75;
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx - boxSz * 0.26, by);
+      ctx.lineTo(bx - boxSz * 0.04, by + boxSz * 0.22);
+      ctx.lineTo(bx + boxSz * 0.30, by - boxSz * 0.22);
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeW * 0.75;
+      drawRoundRect(ctx, bx - boxSz / 2, by - boxSz / 2, boxSz, boxSz, boxSz * 0.28);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = strokeW * 0.75;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(bx + boxSz * 0.85, by);
+    ctx.lineTo(x0 + pageW * (i === 3 ? 0.72 : 0.86), by);
+    ctx.stroke();
+  });
+  ctx.globalAlpha = baseA;
+}
+
+function shapePencil(ctx, sz, color, accent, strokeW) {
+  const len = sz * 0.9, bodyW = sz * 0.15;
+  const tipLen = len * 0.2, ferruleLen = len * 0.08, eraserLen = len * 0.1;
+  const yTop = -len / 2;
+  const yBodyStart = yTop + tipLen;
+  const yFerruleStart = len / 2 - eraserLen - ferruleLen;
+  const yEraserStart = len / 2 - eraserLen;
+  const yBottom = len / 2;
+  const baseA = ctx.globalAlpha;
+
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.rect(-bodyW / 2, yBodyStart, bodyW, yFerruleStart - yBodyStart);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(0, yTop);
+  ctx.lineTo(bodyW / 2, yBodyStart);
+  ctx.lineTo(-bodyW / 2, yBodyStart);
+  ctx.closePath();
+  ctx.fill();
+  drawRoundRect(ctx, -bodyW / 2, yEraserStart, bodyW, yBottom - yEraserStart, bodyW * 0.4);
+  ctx.fill();
+
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.moveTo(0, yTop);
+  ctx.lineTo(bodyW * 0.14, yTop + tipLen * 0.5);
+  ctx.lineTo(-bodyW * 0.14, yTop + tipLen * 0.5);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(-bodyW / 2, yFerruleStart, bodyW, yEraserStart - yFerruleStart);
+  ctx.globalAlpha = baseA;
+}
+
+function shapeLock(ctx, sz, color, accent, strokeW) {
+  const bodyW = sz * 0.56, bodyH = sz * 0.46;
+  const y0 = -bodyH / 2 + sz * 0.08;
+  const shackleR = bodyW * 0.32;
+  const baseA = ctx.globalAlpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeW * 1.3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(0, y0, shackleR, Math.PI, Math.PI * 2, false);
+  ctx.stroke();
+
+  ctx.fillStyle = color;
+  drawRoundRect(ctx, -bodyW / 2, y0, bodyW, bodyH, bodyW * 0.14);
+  ctx.fill();
+
+  ctx.fillStyle = accent;
+  const khR = bodyW * 0.09, khCx = 0, khCy = y0 + bodyH * 0.42;
+  ctx.beginPath();
+  ctx.arc(khCx, khCy, khR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(khCx - khR * 0.5, khCy + khR * 0.3);
+  ctx.lineTo(khCx + khR * 0.5, khCy + khR * 0.3);
+  ctx.lineTo(khCx + khR * 0.22, khCy + khR * 1.9);
+  ctx.lineTo(khCx - khR * 0.22, khCy + khR * 1.9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = baseA;
+}
+
+function shapeCloud(ctx, sz, color, accent, strokeW) {
+  const w = sz * 0.8, h = sz * 0.5;
+  const baseA = ctx.globalAlpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(-w * 0.28, h * 0.05, h * 0.42, 0, Math.PI * 2);
+  ctx.arc(-w * 0.02, -h * 0.12, h * 0.52, 0, Math.PI * 2);
+  ctx.arc(w * 0.28, h * 0.02, h * 0.44, 0, Math.PI * 2);
+  ctx.arc(w * 0.08, h * 0.18, h * 0.5, 0, Math.PI * 2);
+  ctx.rect(-w * 0.32, h * 0.05, w * 0.62, h * 0.28);
+  ctx.fill();
+
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 1.1;
+  ctx.lineCap = 'round';
+  const r = h * 0.22, cx = w * 0.02, cy = h * 0.14;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, -0.3, Math.PI * 1.1);
+  ctx.stroke();
+  const ang = Math.PI * 1.1;
+  const ax = cx + r * Math.cos(ang), ay = cy + r * Math.sin(ang);
+  ctx.beginPath();
+  ctx.moveTo(ax - r * 0.35, ay - r * 0.1);
+  ctx.lineTo(ax, ay);
+  ctx.lineTo(ax - r * 0.05, ay - r * 0.4);
+  ctx.stroke();
+  ctx.globalAlpha = baseA;
+}
+
+function shapeTag(ctx, sz, color, accent, strokeW) {
+  const w = sz * 0.62, h = sz * 0.42, x0 = -w / 2, y0 = -h / 2;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0 + h * 0.15);
+  ctx.lineTo(x0 + w * 0.65, y0);
+  ctx.lineTo(x0 + w, y0 + h / 2);
+  ctx.lineTo(x0 + w * 0.65, y0 + h);
+  ctx.lineTo(x0, y0 + h * 0.85);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.arc(x0 + w * 0.16, y0 + h / 2, h * 0.11, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function shapeStar(ctx, sz, color, accent, strokeW) {
+  const r = sz * 0.42, r2 = r * 0.42;
+  const baseA = ctx.globalAlpha;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const ang = -Math.PI / 2 + i * Math.PI / 5;
+    const rad = i % 2 === 0 ? r : r2;
+    const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.globalAlpha = baseA * 0.5;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 0.8;
+  ctx.stroke();
+  ctx.globalAlpha = baseA;
+}
+
+function shapeFolder(ctx, sz, color, accent, strokeW) {
+  const w = sz * 0.68, h = sz * 0.48, x0 = -w / 2, y0 = -h / 2 + sz * 0.04;
+  const tabW = w * 0.42, tabH = h * 0.22, r = w * 0.06;
+  ctx.fillStyle = color;
+  drawRoundRect(ctx, x0, y0 - tabH * 0.65, tabW, tabH, r * 0.6);
+  ctx.fill();
+  drawRoundRect(ctx, x0, y0, w, h, r);
+  ctx.fill();
+  ctx.fillStyle = accent;
+  drawRoundRect(ctx, x0 - w * 0.015, y0 + h * 0.28, w * 1.03, h * 0.78, r);
+  ctx.fill();
+}
+
+function shapePin(ctx, sz, color, accent, strokeW) {
+  const r = sz * 0.26, cy = -r * 0.2;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(0, cy, r, 0, Math.PI * 2);
+  ctx.moveTo(-r * 0.62, cy + r * 0.55);
+  ctx.lineTo(r * 0.62, cy + r * 0.55);
+  ctx.lineTo(0, cy + r * 1.9);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = accent;
+  ctx.beginPath();
+  ctx.arc(0, cy, r * 0.42, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function shapeMagnifier(ctx, sz, color, accent, strokeW) {
+  const r = sz * 0.26, cx = -sz * 0.06, cy = -sz * 0.06;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeW * 1.4;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 1.6;
+  const hx1 = cx + r * 0.72, hy1 = cy + r * 0.72;
+  const hx2 = hx1 + sz * 0.24, hy2 = hy1 + sz * 0.24;
+  ctx.beginPath();
+  ctx.moveTo(hx1, hy1);
+  ctx.lineTo(hx2, hy2);
+  ctx.stroke();
+}
+
+function shapeBookmark(ctx, sz, color, accent, strokeW) {
+  const w = sz * 0.4, h = sz * 0.72, x0 = -w / 2, y0 = -h / 2;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x0 + w, y0);
+  ctx.lineTo(x0 + w, y0 + h);
+  ctx.lineTo(x0 + w / 2, y0 + h * 0.78);
+  ctx.lineTo(x0, y0 + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 0.8;
+  ctx.beginPath();
+  ctx.moveTo(x0 + w * 0.2, y0 + h * 0.28);
+  ctx.lineTo(x0 + w * 0.8, y0 + h * 0.28);
+  ctx.stroke();
+}
+
+function shapeLink(ctx, sz, color, accent, strokeW) {
+  const lw = sz * 0.26, lh = sz * 0.44;
+  ctx.save();
+  ctx.translate(-sz * 0.14, -sz * 0.05);
+  ctx.rotate(-Math.PI / 4);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = strokeW * 1.6;
+  ctx.lineCap = 'round';
+  drawRoundRect(ctx, -lw / 2, -lh / 2, lw, lh, lw * 0.5);
+  ctx.stroke();
+  ctx.restore();
+  ctx.save();
+  ctx.translate(sz * 0.14, sz * 0.05);
+  ctx.rotate(-Math.PI / 4);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 1.6;
+  ctx.lineCap = 'round';
+  drawRoundRect(ctx, -lw / 2, -lh / 2, lw, lh, lw * 0.5);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function shapeServer(ctx, sz, color, accent, strokeW) {
+  const w = sz * 0.56, bayH = sz * 0.16, gap = sz * 0.03, r = bayH * 0.2;
+  const totalH = bayH * 3 + gap * 2;
+  const x0 = -w / 2, y0 = -totalH / 2;
+  const baseA = ctx.globalAlpha;
+  ctx.fillStyle = color;
+  for (let i = 0; i < 3; i++) {
+    drawRoundRect(ctx, x0, y0 + i * (bayH + gap), w, bayH, r);
+    ctx.fill();
+  }
+  ctx.fillStyle = accent;
+  for (let i = 0; i < 3; i++) {
+    const by = y0 + i * (bayH + gap);
+    ctx.beginPath();
+    ctx.arc(x0 + w * 0.88, by + bayH * 0.5, bayH * 0.14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = strokeW * 0.6;
+  ctx.globalAlpha = baseA * 0.7;
+  for (let i = 0; i < 3; i++) {
+    const by = y0 + i * (bayH + gap);
+    ctx.beginPath();
+    ctx.moveTo(x0 + w * 0.12, by + bayH * 0.5);
+    ctx.lineTo(x0 + w * 0.7, by + bayH * 0.5);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = baseA;
+}
+
+const SHAPES = {
+  foldednote: shapeFoldedNote, notebook: shapeNotebook, splitwindow: shapeSplitWindow,
+  checklist: shapeChecklist, pencil: shapePencil, lock: shapeLock, cloud: shapeCloud,
+  tag: shapeTag, star: shapeStar, folder: shapeFolder, pin: shapePin,
+  magnifier: shapeMagnifier, bookmark: shapeBookmark, link: shapeLink, server: shapeServer,
+};
+
+const OBJECT_TYPES = [
+  ['foldednote', 'Folded Note'], ['notebook', 'Notebook'], ['splitwindow', 'Split Window'],
+  ['checklist', 'Checklist'], ['pencil', 'Pencil'], ['lock', 'Lock (Encrypted)'],
+  ['cloud', 'Cloud Sync'], ['tag', 'Tag / Label'], ['star', 'Star'], ['folder', 'Folder'],
+  ['pin', 'Pin'], ['magnifier', 'Search'], ['bookmark', 'Bookmark'], ['link', 'Link'],
+  ['server', 'NAS Server'],
+];
+
+const OBJECT_DEFAULTS = {
+  foldednote: { scale: 1, stroke: 0.028 }, notebook: { scale: 0.95, stroke: 0.028 },
+  splitwindow: { scale: 0.9, stroke: 0.032 }, checklist: { scale: 0.95, stroke: 0.026 },
+  pencil: { scale: 0.9, stroke: 0.02, rotation: -35 }, lock: { scale: 0.8, stroke: 0.03 },
+  cloud: { scale: 0.9, stroke: 0.024 }, tag: { scale: 0.75, stroke: 0.02, rotation: -18 },
+  star: { scale: 0.45, stroke: 0.02 }, folder: { scale: 0.9, stroke: 0.02 },
+  pin: { scale: 0.65, stroke: 0.02 }, magnifier: { scale: 0.75, stroke: 0.03 },
+  bookmark: { scale: 0.75, stroke: 0.02 }, link: { scale: 0.75, stroke: 0.03 },
+  server: { scale: 0.8, stroke: 0.02 },
+};
+
+// ─── Layer wrapper: position, rotation, scale, opacity ───────────────
+function drawGlyphObject(ctx, w, h, obj) {
+  const fn = SHAPES[obj.type];
+  if (!fn) return;
+  const sz = Math.min(w, h) * obj.scale;
+  const cx = w * (obj.x / 100), cy = h * (obj.y / 100);
+  const strokeW = Math.max(1, Math.min(w, h) * obj.stroke);
+  ctx.save();
+  ctx.globalAlpha = obj.opacity;
+  ctx.translate(cx, cy);
+  ctx.rotate(obj.rotation * Math.PI / 180);
+  fn(ctx, sz, obj.color, obj.accent, strokeW);
+  ctx.restore();
+}
+
+// ─── Lettermark / badge ─────────────────────────────────────────────
+function visIn(scope, isIcon) {
+  if (scope === 'splash') return !isIcon;
+  if (scope === 'icon') return isIcon;
+  return true;
+}
+
+function drawBadgeShapePath(ctx, shape, bw, bh) {
+  const hw = bw / 2, hh = bh / 2;
+  if (shape === 'pill') { drawRoundRect(ctx, -hw, -hh, bw, bh, bh * 0.5); return; }
+  if (shape === 'circle') { const r = Math.max(hw, hh); ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); return; }
+  const sz = Math.max(bw, bh) * 1.1;
+  drawRoundRect(ctx, -sz / 2, -sz / 2, sz, sz, sz * 0.2);
+}
+
+function drawLettermark(ctx, w, h, s, isIcon) {
+  if (!s.showLetters || !visIn(s.letterScope, isIcon) || !s.letterText.trim()) return;
+  const bs = Math.min(w, h);
+  const fSize = bs * s.letterSize;
+  const font = `900 ${fSize}px ${s.letterFont}`;
+  const x = w * (s.letterX / 100), y = h * (s.letterY / 100);
+  const color = s.dark ? s.letterColorDark : s.letterColorLight;
+
+  ctx.save();
+  ctx.font = font;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  if (s.letterBadge) {
+    const tw = ctx.measureText(s.letterText).width;
+    const padX = fSize * 0.55, padY = fSize * 0.32;
+    const bw = tw + padX * 2, bh = fSize + padY * 2;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha = s.letterBadgeAlpha;
+    ctx.fillStyle = s.letterBadgeColor;
+    drawBadgeShapePath(ctx, s.letterBadgeShape, bw, bh);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  if (s.letterShadow) {
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = fSize * 0.22;
+    ctx.shadowOffsetY = fSize * 0.05;
+  }
+  ctx.fillStyle = color;
+  ctx.fillText(s.letterText, x, y);
+  ctx.restore();
+}
+
+// ─── Splash branding text ───────────────────────────────────────────
+function drawSplashText(ctx, w, h, s) {
+  const color = s.dark ? s.textColorDark : s.textColorLight;
+  const nameSize = Math.min(w, h) * s.nameFontSize;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = nameSize * 0.18;
+  ctx.fillStyle = color;
+  ctx.font = `800 ${nameSize}px 'Segoe UI', sans-serif`;
+  ctx.fillText(s.appName, w / 2, h * (s.nameY / 100));
+
+  if (s.showTagline && s.tagline.trim()) {
+    ctx.shadowBlur = nameSize * 0.1;
+    ctx.fillStyle = s.taglineColor;
+    ctx.font = `500 ${nameSize * 0.4}px 'Segoe UI', sans-serif`;
+    ctx.fillText(s.tagline, w / 2, h * (s.taglineY / 100));
+  }
+  ctx.restore();
+}
+
+// ─── Focal object layer state ─────────────────────────────────────────
+let objects = [
+  { type: 'foldednote', color: '#ffffff', accent: '#EF9906', opacity: 1, scale: 1, x: 48, y: 50, rotation: 0, stroke: 0.028 },
+  { type: 'star', color: '#EF9906', accent: '#ffffff', opacity: 0.95, scale: 0.22, x: 76, y: 24, rotation: 15, stroke: 0.02 },
+];
+
+function addObject(type) {
+  type = type || 'star';
+  const d = OBJECT_DEFAULTS[type] || {};
+  objects.push({
+    type, color: '#ffffff', accent: '#EF9906', opacity: 1,
+    scale: d.scale ?? 0.8, x: 50, y: 50, rotation: d.rotation ?? 0, stroke: d.stroke ?? 0.026,
+  });
+  renderObjectsPanel();
+  scheduleRender();
+}
+function removeObject(i) { objects.splice(i, 1); renderObjectsPanel(); scheduleRender(); }
+function updateObject(i, key, val) { objects[i][key] = val; scheduleRender(); }
+function moveObject(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= objects.length) return;
+  [objects[i], objects[j]] = [objects[j], objects[i]];
+  renderObjectsPanel();
+  scheduleRender();
+}
+
+function initObjectTypePicker() {
+  const sel = document.getElementById('objectTypePicker');
+  if (!sel) return;
+  sel.innerHTML = OBJECT_TYPES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+}
+
+function renderObjectsPanel() {
+  const container = document.getElementById('objectsContainer');
+  if (!container) return;
+  container.innerHTML = '';
+  if (objects.length === 0) {
+    container.innerHTML = '<div style="font-size:.72rem;color:var(--text2);text-align:center;padding:6px 0;">No objects yet — add one above</div>';
+    return;
+  }
+  const typeOpts = sel => OBJECT_TYPES.map(([v, l]) => `<option value="${v}"${sel === v ? ' selected' : ''}>${l}</option>`).join('');
+
+  objects.forEach((o, i) => {
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;';
+    const scL = `o${i}_scL`, opL = `o${i}_opL`, xL = `o${i}_xL`, yL = `o${i}_yL`, rL = `o${i}_rL`, stL = `o${i}_stL`;
+    const label = OBJECT_TYPES.find(([v]) => v === o.type)?.[1] || o.type;
+    card.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+        <span style="font-size:.78rem;font-weight:600;color:var(--accent2);">${i + 1}. ${label}</span>
+        <div style="display:flex;gap:3px;">
+          <button class="btn btn-outline" style="padding:2px 6px;font-size:.7rem;" onclick="moveObject(${i},-1)"${i === 0 ? ' disabled' : ''}>↑</button>
+          <button class="btn btn-outline" style="padding:2px 6px;font-size:.7rem;" onclick="moveObject(${i},1)"${i === objects.length - 1 ? ' disabled' : ''}>↓</button>
+          <button class="btn btn-outline" style="padding:2px 7px;font-size:.7rem;color:#f56b6b;border-color:rgba(245,107,107,.3);" onclick="removeObject(${i})">✕</button>
+        </div>
+      </div>
+      <select style="width:100%;margin-bottom:6px;" onchange="updateObject(${i},'type',this.value);renderObjectsPanel()">${typeOpts(o.type)}</select>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px;">
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Color</div>
+          <input type="color" style="width:100%;height:28px;" value="${o.color}" oninput="updateObject(${i},'color',this.value)"/>
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Accent</div>
+          <input type="color" style="width:100%;height:28px;" value="${o.accent}" oninput="updateObject(${i},'accent',this.value)"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px;">
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Scale <span id="${scL}" style="color:var(--accent2);">${o.scale.toFixed(2)}</span></div>
+          <input type="range" min="0.1" max="1.6" step="0.02" value="${o.scale}"
+            oninput="document.getElementById('${scL}').textContent=parseFloat(this.value).toFixed(2);updateObject(${i},'scale',+this.value)"/>
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Opacity <span id="${opL}" style="color:var(--accent2);">${o.opacity.toFixed(2)}</span></div>
+          <input type="range" min="0.1" max="1" step="0.02" value="${o.opacity}"
+            oninput="document.getElementById('${opL}').textContent=parseFloat(this.value).toFixed(2);updateObject(${i},'opacity',+this.value)"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px;">
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">X% <span id="${xL}" style="color:var(--accent2);">${o.x}</span></div>
+          <input type="range" min="0" max="100" step="1" value="${o.x}"
+            oninput="document.getElementById('${xL}').textContent=this.value;updateObject(${i},'x',+this.value)"/>
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Y% <span id="${yL}" style="color:var(--accent2);">${o.y}</span></div>
+          <input type="range" min="0" max="100" step="1" value="${o.y}"
+            oninput="document.getElementById('${yL}').textContent=this.value;updateObject(${i},'y',+this.value)"/>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Rotation° <span id="${rL}" style="color:var(--accent2);">${o.rotation}</span></div>
+          <input type="range" min="-180" max="180" step="1" value="${o.rotation}"
+            oninput="document.getElementById('${rL}').textContent=this.value;updateObject(${i},'rotation',+this.value)"/>
+        </div>
+        <div>
+          <div style="font-size:.7rem;color:var(--text2);">Line Wt <span id="${stL}" style="color:var(--accent2);">${o.stroke.toFixed(3)}</span></div>
+          <input type="range" min="0.008" max="0.06" step="0.002" value="${o.stroke}"
+            oninput="document.getElementById('${stL}').textContent=parseFloat(this.value).toFixed(3);updateObject(${i},'stroke',+this.value)"/>
+        </div>
+      </div>`;
+    container.appendChild(card);
+  });
+}
+
+// ─── State snapshot ───────────────────────────────────────────────────
+const S = () => ({
+  dark:       document.getElementById('darkToggle').checked,
+  transparentBg: document.getElementById('transparentBg').checked,
+  lightBg:    document.getElementById('lightBg').value,
+  darkBg:     document.getElementById('darkBg').value,
+  gradEnabled:document.getElementById('gradEnabled').checked,
+  lightBg2:   document.getElementById('lightBg2').value,
+  darkBg2:    document.getElementById('darkBg2').value,
+  gradAngle:  parseFloat(document.getElementById('gradAngle').value),
+  objects:    objects.map(o => ({ ...o })),
+  showLetters: document.getElementById('showLetters').checked,
+  letterScope: document.getElementById('letterScope').value,
+  letterText:  document.getElementById('letterText').value,
+  letterFont:  document.getElementById('letterFont').value,
+  letterSize:  parseFloat(document.getElementById('letterSize').value),
+  letterX:     parseFloat(document.getElementById('letterX').value),
+  letterY:     parseFloat(document.getElementById('letterY').value),
+  letterColorLight: document.getElementById('letterColorLight').value,
+  letterColorDark:  document.getElementById('letterColorDark').value,
+  letterShadow: document.getElementById('letterShadow').checked,
+  letterBadge:  document.getElementById('letterBadge').checked,
+  letterBadgeShape: document.getElementById('letterBadgeShape').value,
+  letterBadgeColor: document.getElementById('letterBadgeColor').value,
+  letterBadgeAlpha: parseFloat(document.getElementById('letterBadgeAlpha').value),
+  appName:    document.getElementById('appName').value,
+  tagline:    document.getElementById('tagline').value,
+  showTagline:document.getElementById('showTagline').checked,
+  nameFontSize:parseFloat(document.getElementById('nameFontSize').value),
+  nameY:      parseFloat(document.getElementById('nameY').value),
+  taglineY:   parseFloat(document.getElementById('taglineY').value),
+  textColorLight: document.getElementById('textColorLight').value,
+  textColorDark:  document.getElementById('textColorDark').value,
+  taglineColor:   document.getElementById('taglineColor').value,
+  corner:     parseFloat(document.getElementById('cornerRadius').value) / 100,
+});
+
+// ─── Core composite renderer ────────────────────────────────────────
+// bake: bake rounded-corner clipping into the exported pixels (macOS only —
+// iOS/Android/Windows mask the icon themselves from a full-bleed square).
+function drawComposite(canvas, w, h, s, isSplash, bake) {
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  if (bake) {
+    const pad = Math.min(w, h) * 0.06;
+    drawRoundRect(ctx, pad, pad, w - pad * 2, h - pad * 2, Math.min(w, h) * 0.22);
+    ctx.save();
+    ctx.clip();
+  }
+
+  // Transparent Icon toggle only strips the fill for icon exports — splash
+  // screens need a real background, so they keep filling even when it's on.
+  const skipBg = s.transparentBg && !isSplash;
+  if (!skipBg) {
+    const bg1 = s.dark ? s.darkBg : s.lightBg;
+    const bg2 = s.dark ? s.darkBg2 : s.lightBg2;
+    if (s.gradEnabled) {
+      const rad = s.gradAngle * Math.PI / 180;
+      const dx = Math.cos(rad), dy = Math.sin(rad);
+      const cx = w / 2, cy = h / 2, len = Math.max(w, h) / 2;
+      const g = ctx.createLinearGradient(cx - dx * len, cy - dy * len, cx + dx * len, cy + dy * len);
+      g.addColorStop(0, bg1); g.addColorStop(1, bg2);
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = bg1;
+    }
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  if (isSplash) {
+    // shift focal objects up on splash canvases to leave room for name/tagline
+    s.objects.forEach(o => drawGlyphObject(ctx, w, h, { ...o, y: Math.min(o.y, 55) * 0.75 }));
+    drawLettermark(ctx, w, h, s, false);
+    drawSplashText(ctx, w, h, s);
+  } else {
+    s.objects.forEach(o => drawGlyphObject(ctx, w, h, o));
+    drawLettermark(ctx, w, h, s, true);
+  }
+
+  if (bake) ctx.restore();
+}
+
+// ─── Supersampled renderer ────────────────────────────────────────────
+// drawComposite rasterizes fillText/shadowBlur at exactly the target pixel
+// grid — fine at 1024px, but the small slots (32px favicon, 40-76px iOS
+// icons) give the browser's font rasterizer almost nothing to work with,
+// so the lettermark comes out jagged/blocky. Rendering at a higher-res
+// offscreen canvas first and downscaling with high-quality smoothing gives
+// the rasterizer far more samples, so edges (and the shadow) come out
+// properly anti-aliased instead. Every draw call below is scale-relative
+// to the w/h it's given, so this needs no changes to drawComposite itself.
+const ICON_SUPERSAMPLE = 4;
+const SPLASH_SUPERSAMPLE = 2;
+function drawCompositeHQ(canvas, w, h, s, isSplash, bake) {
+  const scale = isSplash ? SPLASH_SUPERSAMPLE : ICON_SUPERSAMPLE;
+  if (scale <= 1) { drawComposite(canvas, w, h, s, isSplash, bake); return; }
+  const off = document.createElement('canvas');
+  drawComposite(off, w * scale, h * scale, s, isSplash, bake);
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(off, 0, 0, w, h);
+}
+
+// ─── Transparent Icon toggle ──────────────────────────────────────────
+// Dims/disables the background color+gradient controls when Transparent
+// Icon is on, since they're ignored for icon exports in that state.
+function updateBgControlsState() {
+  const on = document.getElementById('transparentBg').checked;
+  ['lightBg', 'darkBg', 'gradEnabled', 'lightBg2', 'darkBg2', 'gradAngle'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = on;
+    const row = el.closest('.toggle-row') || el;
+    row.style.opacity = on ? 0.45 : 1;
+    if (el.previousElementSibling && el.previousElementSibling.tagName === 'LABEL') {
+      el.previousElementSibling.style.opacity = on ? 0.45 : 1;
+    }
+  });
+}
+
+// ─── Tabs / render loop ────────────────────────────────────────────
+let currentTab = 'icon';
+function setTab(t) {
+  currentTab = t;
+  ['icon', 'splash', 'export'].forEach((x, i) => {
+    document.getElementById('tab-' + x).style.display = x === t ? 'block' : 'none';
+    document.querySelectorAll('.tab')[i].classList.toggle('active', x === t);
+  });
+  render();
+}
+
+let renderTimer = null;
+function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(render, 40); }
+
+const ICON_SIZES = [
+  { label: '1024×1024\n(Master / App Store)', displaySz: 200, exportSz: 1024, safeZone: 'ios' },
+  { label: '512×512\n(Play / macOS)',          displaySz: 160, exportSz: 512,  safeZone: 'android' },
+  { label: '192×192\n(Android xxxhdpi / Web)', displaySz: 100, exportSz: 192,  safeZone: 'android' },
+  { label: '180×180\n(iPhone @3x)',            displaySz: 100, exportSz: 180,  safeZone: 'ios' },
+  { label: '32×32\n(Favicon)',                 displaySz: 64,  exportSz: 32,   safeZone: null },
+];
+
+const SPLASH_SIZES = [
+  { label: 'iPhone X/11\n1125×2436', w: 180, h: 390 },
+  { label: 'iPad\n1536×2048', w: 180, h: 240 },
+  { label: 'Android FHD\n1080×2400', w: 162, h: 360 },
+  { label: 'macOS Window\n1280×800', w: 240, h: 150 },
+  { label: 'Windows\n1920×1080', w: 240, h: 135 },
+];
+
+function render() {
+  setStatus('Rendering…');
+  const s = S();
+  if (currentTab === 'icon') renderIcons(s);
+  else if (currentTab === 'splash') renderSplash(s);
+  else renderExport();
+  setStatus('Ready ✓');
+}
+
+function renderIcons(s) {
+  const container = document.getElementById('iconPreviews');
+  container.innerHTML = '';
+  for (const mode of ['Dark', 'Light']) {
+    const wrap = mkEl('div', { style: 'background:#1a1d27;padding:14px;border-radius:10px;border:1px solid #2e3350;' });
+    wrap.appendChild(Object.assign(mkEl('div'), { textContent: `${mode} Mode`, style: 'font-size:.75rem;color:#9ba3c0;margin-bottom:10px;font-weight:600;' }));
+    const row = mkEl('div', { style: 'display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;' });
+    const ms = { ...s, dark: mode === 'Dark' };
+    for (const spec of ICON_SIZES) {
+      const c = document.createElement('canvas');
+      drawCompositeHQ(c, spec.exportSz, spec.exportSz, ms, false, false);
+      const dc = document.createElement('canvas');
+      dc.width = spec.displaySz; dc.height = spec.displaySz;
+      dc.className = 'checker-bg';
+      dc.style.cssText = `border-radius:${spec.displaySz * ms.corner}px;box-shadow:0 4px 24px rgba(0,0,0,.55);`;
+      const dctx = dc.getContext('2d');
+      dctx.imageSmoothingEnabled = true;
+      dctx.imageSmoothingQuality = 'high';
+      dctx.drawImage(c, 0, 0, spec.displaySz, spec.displaySz);
+      drawSafeZoneGuide(dc, spec.safeZone);
+      const lbl = mkEl('div', { className: 'lbl', textContent: spec.label });
+      const blk = mkEl('div', { className: 'preview-block' });
+      blk.append(dc, lbl); row.appendChild(blk);
+    }
+    // macOS baked squircle preview
+    const mc = document.createElement('canvas');
+    drawCompositeHQ(mc, 512, 512, ms, false, true);
+    const mdc = document.createElement('canvas');
+    mdc.width = 100; mdc.height = 100;
+    mdc.className = 'checker-bg';
+    mdc.style.cssText = 'box-shadow:0 4px 24px rgba(0,0,0,.55);';
+    const mdctx = mdc.getContext('2d');
+    mdctx.imageSmoothingEnabled = true;
+    mdctx.imageSmoothingQuality = 'high';
+    mdctx.drawImage(mc, 0, 0, 100, 100);
+    const mblk = mkEl('div', { className: 'preview-block' });
+    mblk.append(mdc, mkEl('div', { className: 'lbl', textContent: '512×512\n(macOS baked)' }));
+    row.appendChild(mblk);
+
+    wrap.appendChild(row);
+    container.appendChild(wrap);
+  }
+}
+
+function renderSplash(s) {
+  const container = document.getElementById('splashPreviews');
+  container.innerHTML = '';
+  for (const mode of ['Dark', 'Light']) {
+    const wrap = mkEl('div', { style: 'background:#1a1d27;padding:14px;border-radius:10px;border:1px solid #2e3350;' });
+    wrap.appendChild(Object.assign(mkEl('div'), { textContent: `${mode} Mode`, style: 'font-size:.75rem;color:#9ba3c0;margin-bottom:10px;font-weight:600;' }));
+    const row = mkEl('div', { style: 'display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;' });
+    const ms = { ...s, dark: mode === 'Dark' };
+    for (const spec of SPLASH_SIZES) {
+      const c = document.createElement('canvas');
+      drawCompositeHQ(c, spec.w * 4, spec.h * 4, ms, true, false);
+      const dc = document.createElement('canvas');
+      dc.width = spec.w; dc.height = spec.h;
+      dc.style.cssText = 'border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.55);';
+      dc.getContext('2d').drawImage(c, 0, 0, spec.w, spec.h);
+      const lbl = mkEl('div', { className: 'lbl', textContent: spec.label });
+      const blk = mkEl('div', { className: 'preview-block' });
+      blk.append(dc, lbl); row.appendChild(blk);
+    }
+    wrap.appendChild(row);
+    container.appendChild(wrap);
+  }
+}
+
+// ─── Export manifest — filenames match this repo exactly ────────────
+const EXPORT = {
+  Master: [
+    { n: 'app_icon', s: 1024, note: 'flutter_launcher_icons master (image_path)' },
+  ],
+  iOS: [
+    { n: 'Icon-App-1024x1024@1x', s: 1024, note: 'App Store' },
+    { n: 'Icon-App-83.5x83.5@2x', s: 167, note: 'iPad Pro' },
+    { n: 'Icon-App-76x76@2x', s: 152, note: 'iPad @2x' },
+    { n: 'Icon-App-76x76@1x', s: 76, note: 'iPad @1x' },
+    { n: 'Icon-App-72x72@2x', s: 144, note: 'iPad (legacy) @2x' },
+    { n: 'Icon-App-72x72@1x', s: 72, note: 'iPad (legacy) @1x' },
+    { n: 'Icon-App-60x60@3x', s: 180, note: 'iPhone @3x' },
+    { n: 'Icon-App-60x60@2x', s: 120, note: 'iPhone @2x' },
+    { n: 'Icon-App-57x57@2x', s: 114, note: 'iPhone (legacy) @2x' },
+    { n: 'Icon-App-57x57@1x', s: 57, note: 'iPhone (legacy) @1x' },
+    { n: 'Icon-App-50x50@2x', s: 100, note: 'iPad Spotlight @2x' },
+    { n: 'Icon-App-50x50@1x', s: 50, note: 'iPad Spotlight @1x' },
+    { n: 'Icon-App-40x40@3x', s: 120, note: 'Spotlight @3x' },
+    { n: 'Icon-App-40x40@2x', s: 80, note: 'Spotlight @2x' },
+    { n: 'Icon-App-40x40@1x', s: 40, note: 'Spotlight @1x' },
+    { n: 'Icon-App-29x29@3x', s: 87, note: 'Settings @3x' },
+    { n: 'Icon-App-29x29@2x', s: 58, note: 'Settings @2x' },
+    { n: 'Icon-App-29x29@1x', s: 29, note: 'Settings @1x' },
+    { n: 'Icon-App-20x20@3x', s: 60, note: 'Notification @3x' },
+    { n: 'Icon-App-20x20@2x', s: 40, note: 'Notification @2x' },
+    { n: 'Icon-App-20x20@1x', s: 20, note: 'Notification @1x' },
+  ],
+  macOS: [
+    { n: 'app_icon_1024', s: 1024, note: '512pt @2x' },
+    { n: 'app_icon_512', s: 512, note: '512pt @1x / 256pt @2x' },
+    { n: 'app_icon_256', s: 256, note: '256pt @1x / 128pt @2x' },
+    { n: 'app_icon_128', s: 128, note: '128pt @1x' },
+    { n: 'app_icon_64', s: 64, note: '32pt @2x' },
+    { n: 'app_icon_32', s: 32, note: '32pt @1x / 16pt @2x' },
+    { n: 'app_icon_16', s: 16, note: '16pt @1x' },
+  ],
+  Windows: [
+    { n: 'app_icon_256', s: 256, note: 'ICO max frame' },
+    { n: 'app_icon_128', s: 128, note: 'ICO frame' },
+    { n: 'app_icon_64', s: 64, note: 'Taskbar' },
+    { n: 'app_icon_48', s: 48, note: 'Explorer' },
+    { n: 'app_icon_32', s: 32, note: 'Standard' },
+    { n: 'app_icon_16', s: 16, note: 'Smallest' },
+  ],
+  Web: [
+    { n: 'Icon-512', s: 512, note: 'web/icons/' },
+    { n: 'Icon-192', s: 192, note: 'web/icons/' },
+    { n: 'Icon-maskable-512', s: 512, note: 'web/icons/ (maskable — extra padding)', maskable: true },
+    { n: 'Icon-maskable-192', s: 192, note: 'web/icons/ (maskable — extra padding)', maskable: true },
+    { n: 'favicon', s: 32, note: 'web/' },
+  ],
+  Splash: [
+    { n: 'splash_iphone_x', w: 1125, h: 2436, note: 'iPhone X/11/12' },
+    { n: 'splash_ipad', w: 1536, h: 2048, note: 'iPad' },
+    { n: 'splash_android_fhd', w: 1080, h: 2400, note: 'Android FHD+' },
+    { n: 'splash_macos', w: 1280, h: 800, note: 'macOS window' },
+    { n: 'splash_windows', w: 1920, h: 1080, note: 'Windows' },
+  ],
+};
+
+function renderExport() {
+  function fill(id, items, mode) {
+    const el = document.getElementById(id); el.innerHTML = '';
+    items.forEach(item => {
+      const card = mkEl('div', { className: 'export-card' });
+      const sizeLabel = mode === 'splash' ? item.w + '×' + item.h : item.s + '×' + item.s;
+      card.innerHTML = `<div class="info"><strong>${item.n}.png</strong><div class="sz">${sizeLabel} — ${item.note}</div></div><button class="btn btn-outline" style="font-size:.72rem;padding:4px 10px;">⬇</button>`;
+      card.onclick = () => { mode === 'splash' ? dlSplash(item) : dlIcon(item); };
+      el.appendChild(card);
+    });
+  }
+  fill('exportMaster', EXPORT.Master, 'icon');
+  fill('exportIOS', EXPORT.iOS, 'icon');
+  fill('exportMac', EXPORT.macOS, 'icon');
+  fill('exportWin', EXPORT.Windows, 'icon');
+  fill('exportWeb', EXPORT.Web, 'icon');
+  fill('exportSplash', EXPORT.Splash, 'splash');
+}
+
+// ─── Download helpers ─────────────────────────────────────────────────
+function dlIcon(item) {
+  const s = S();
+  const c = document.createElement('canvas');
+  const bake = EXPORT.macOS.includes(item);
+  let ms = s;
+  if (item.maskable) {
+    // shrink content into ~66% safe zone for maskable icons by scaling objects/letters down
+    ms = { ...s, objects: s.objects.map(o => ({ ...o, scale: o.scale * 0.66 })), letterSize: s.letterSize * 0.66 };
+  }
+  drawCompositeHQ(c, item.s, item.s, ms, false, bake);
+  saveCanvas(c, item.n);
+}
+function dlSplash(item) {
+  const s = S();
+  const c = document.createElement('canvas');
+  drawCompositeHQ(c, item.w, item.h, s, true, false);
+  saveCanvas(c, item.n);
+}
+async function downloadAllIcons() {
+  for (const arr of [EXPORT.Master, EXPORT.iOS, EXPORT.macOS, EXPORT.Windows, EXPORT.Web]) {
+    for (const item of arr) { dlIcon(item); await delay(80); }
+  }
+}
+async function downloadAllSplash() {
+  for (const item of EXPORT.Splash) { dlSplash(item); await delay(80); }
+}
+function saveCanvas(canvas, name) {
+  return new Promise(r => canvas.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name + '.png'; a.click();
+    r();
+  }, 'image/png'));
+}
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+async function zipAllIcons() {
+  if (typeof JSZip === 'undefined') { alert('JSZip not loaded — check your internet connection.'); return; }
+  setStatus('Zipping…');
+  const zip = new JSZip();
+  const s = S();
+  const groups = [['assets/icons', EXPORT.Master], ['ios', EXPORT.iOS], ['macos', EXPORT.macOS], ['windows', EXPORT.Windows], ['web', EXPORT.Web]];
+  for (const [folder, arr] of groups) {
+    for (const item of arr) {
+      const c = document.createElement('canvas');
+      const bake = EXPORT.macOS.includes(item);
+      let ms = s;
+      if (item.maskable) ms = { ...s, objects: s.objects.map(o => ({ ...o, scale: o.scale * 0.66 })), letterSize: s.letterSize * 0.66 };
+      drawCompositeHQ(c, item.s, item.s, ms, false, bake);
+      zip.file(`${folder}/${item.n}.png`, await new Promise(r => c.toBlob(r, 'image/png')));
+    }
+  }
+  setStatus('Building ZIP…');
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'sne_icons.zip'; a.click();
+  setStatus('Ready ✓');
+}
+
+async function zipAllSplash() {
+  if (typeof JSZip === 'undefined') { alert('JSZip not loaded — check your internet connection.'); return; }
+  setStatus('Zipping…');
+  const zip = new JSZip();
+  const s = S();
+  for (const item of EXPORT.Splash) {
+    const c = document.createElement('canvas');
+    drawCompositeHQ(c, item.w, item.h, s, true, false);
+    zip.file(`${item.n}.png`, await new Promise(r => c.toBlob(r, 'image/png')));
+  }
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'sne_splash.zip'; a.click();
+  setStatus('Ready ✓');
+}
+
+// ─── Safe zone overlays ───────────────────────────────────────────────
+let showSafeZones = false;
+function toggleSafeZones() {
+  showSafeZones = !showSafeZones;
+  const btn = document.getElementById('safeZoneBtn');
+  if (btn) { btn.classList.toggle('btn-primary', showSafeZones); btn.classList.toggle('btn-outline', !showSafeZones); }
+  scheduleRender();
+}
+function drawSafeZoneGuide(canvas, safeZone) {
+  if (!showSafeZones || !safeZone) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height, s = Math.min(w, h);
+  ctx.save();
+  ctx.lineWidth = Math.max(1.5, s * 0.014);
+  ctx.setLineDash([s * 0.05, s * 0.025]);
+  if (safeZone === 'ios') {
+    ctx.strokeStyle = 'rgba(80,160,255,0.9)';
+    drawRoundRect(ctx, s * 0.02, s * 0.02, s * 0.96, s * 0.96, s * 0.225); ctx.stroke();
+  } else if (safeZone === 'android') {
+    ctx.strokeStyle = 'rgba(80,220,130,0.9)';
+    const m = s * 0.167; ctx.strokeRect(m, m, s - m * 2, s - m * 2);
+  }
+  ctx.restore();
+}
+
+// ─── Misc ─────────────────────────────────────────────────────────────
+function mkEl(tag, props = {}) { const el = document.createElement(tag); Object.assign(el, props); return el; }
+function setStatus(msg) { document.getElementById('genStatus').textContent = msg; }
+
+// ─── Save / Load designs ──────────────────────────────────────────────
+const DESIGN_KEY = 'sne_icon_designs_v1';
+function getDesigns() { try { return JSON.parse(localStorage.getItem(DESIGN_KEY) || '[]'); } catch { return []; } }
+function persistDesigns(arr) { localStorage.setItem(DESIGN_KEY, JSON.stringify(arr)); renderDesignList(); }
+
+const DESIGN_FIELD_IDS = [
+  'darkToggle','transparentBg','lightBg','darkBg','gradEnabled','lightBg2','darkBg2','gradAngle',
+  'showLetters','letterScope','letterText','letterFont','letterSize','letterX','letterY',
+  'letterColorLight','letterColorDark','letterShadow','letterBadge','letterBadgeShape','letterBadgeColor','letterBadgeAlpha',
+  'appName','tagline','showTagline','nameFontSize','nameY','taglineY','textColorLight','textColorDark','taglineColor',
+  'cornerRadius',
+];
+
+function captureDesignState() {
+  const g = id => document.getElementById(id);
+  const state = {};
+  DESIGN_FIELD_IDS.forEach(id => { const el = g(id); state[id] = el.type === 'checkbox' ? el.checked : el.value; });
+  state.objects = objects.map(o => ({ ...o }));
+  return state;
+}
+
+function applyDesignState(state) {
+  Object.entries(state).forEach(([id, val]) => {
+    if (id === 'objects') return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') el.checked = val; else el.value = val;
+  });
+  const sync = (inputId, labelId, fmt) => {
+    const el = document.getElementById(inputId), lb = document.getElementById(labelId);
+    if (el && lb) lb.textContent = fmt ? fmt(el.value) : el.value;
+  };
+  sync('gradAngle', 'gradAngleL');
+  sync('letterSize', 'letterSzL');
+  sync('letterX', 'letterXL');
+  sync('letterY', 'letterYL');
+  sync('letterBadgeAlpha', 'letterBadgeAlphaL', v => parseFloat(v).toFixed(2));
+  sync('nameFontSize', 'nameSzL');
+  sync('nameY', 'nameYL');
+  sync('taglineY', 'taglineYL');
+  sync('cornerRadius', 'cornerL');
+  updateBgControlsState();
+
+  if (Array.isArray(state.objects)) {
+    objects = state.objects.map(o => ({ ...o }));
+  } else if (state.glyphStyle && state.glyphStyle !== 'none') {
+    // migrate designs saved before the multi-object layering system
+    objects = [{
+      type: state.glyphStyle, color: state.glyphColorLight || '#ffffff',
+      accent: state.glyphAccent || '#EF9906', opacity: parseFloat(state.glyphOpacity || 1),
+      scale: parseFloat(state.glyphScale || 1), x: 50, y: parseFloat(state.glyphY || 50),
+      rotation: 0, stroke: parseFloat(state.glyphStroke || 0.028),
+    }];
+  } else if (state.glyphStyle === 'none') {
+    objects = [];
+  }
+  renderObjectsPanel();
+}
+
+function saveDesign() {
+  const name = document.getElementById('designNameInput').value.trim();
+  if (!name) return;
+  const designs = getDesigns().filter(d => d.name !== name);
+  designs.push({ name, state: captureDesignState() });
+  persistDesigns(designs);
+  const msg = document.getElementById('saveMsg');
+  msg.textContent = `Saved "${name}"`;
+  msg.style.display = 'block';
+  setTimeout(() => { msg.style.display = 'none'; }, 2000);
+}
+function loadDesign(name) {
+  const d = getDesigns().find(d => d.name === name);
+  if (!d) return;
+  applyDesignState(d.state);
+  document.getElementById('designNameInput').value = name;
+  scheduleRender();
+}
+function deleteDesign(name) {
+  if (!confirm(`Delete design "${name}"?`)) return;
+  persistDesigns(getDesigns().filter(d => d.name !== name));
+}
+function exportDesigns() {
+  const designs = getDesigns();
+  if (!designs.length) { alert('No saved designs to export.'); return; }
+  const blob = new Blob([JSON.stringify(designs, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'sne_icon_designs.json'; a.click();
+}
+function importDesigns(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const incoming = JSON.parse(e.target.result);
+      if (!Array.isArray(incoming)) throw new Error('Not an array');
+      const existing = getDesigns();
+      const existingNames = new Set(existing.map(d => d.name));
+      let added = 0, skipped = 0;
+      for (const d of incoming) {
+        if (!d.name || !d.state) continue;
+        if (existingNames.has(d.name)) { skipped++; continue; }
+        existing.push(d); added++;
+      }
+      persistDesigns(existing);
+      const msg = document.getElementById('saveMsg');
+      msg.textContent = `Imported ${added} design${added !== 1 ? 's' : ''}${skipped ? ' (' + skipped + ' skipped — name already exists)' : ''}.`;
+      msg.style.display = 'block';
+      setTimeout(() => { msg.style.display = 'none'; }, 4000);
+    } catch { alert('Invalid design file.'); }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+function renderDesignList() {
+  const designs = getDesigns();
+  const list = document.getElementById('designList');
+  list.innerHTML = '';
+  if (designs.length === 0) {
+    list.innerHTML = '<div style="font-size:.72rem;color:var(--text2);text-align:center;padding:6px 0;">No saved designs yet</div>';
+    return;
+  }
+  designs.slice().reverse().forEach(d => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);';
+    const nameSpan = document.createElement('span');
+    nameSpan.style.cssText = 'flex:1;font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+    nameSpan.title = d.name; nameSpan.textContent = d.name;
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'btn btn-outline'; loadBtn.style.cssText = 'padding:3px 10px;font-size:.72rem;';
+    loadBtn.textContent = 'Load'; loadBtn.addEventListener('click', () => loadDesign(d.name));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-outline'; delBtn.style.cssText = 'padding:3px 8px;font-size:.72rem;color:#f56b6b;border-color:rgba(245,107,107,.35);';
+    delBtn.textContent = '✕'; delBtn.addEventListener('click', () => deleteDesign(d.name));
+    row.appendChild(nameSpan); row.appendChild(loadBtn); row.appendChild(delBtn);
+    list.appendChild(row);
+  });
+}
+
+// ─── Palette color application ─────────────────────────────────────
+let _lastColorInput = null;
+document.addEventListener('focus', e => {
+  if (e.target.type === 'color') _lastColorInput = e.target;
+}, true);
+function applyPaletteColor(hex, e) {
+  e.preventDefault();
+  if (!_lastColorInput) return;
+  _lastColorInput.value = hex;
+  _lastColorInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// ─── Collapsible panels ───────────────────────────────────────────────
+function savePanelStates() {
+  const states = {};
+  document.querySelectorAll('.sidebar .panel').forEach(p => {
+    const h2 = p.querySelector(':scope > h2');
+    if (h2) states[h2.textContent.trim()] = p.classList.contains('collapsed');
+  });
+  localStorage.setItem('sne_panel_states', JSON.stringify(states));
+}
+function initPanels() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('sne_panel_states') || '{}'); } catch {}
+  document.querySelectorAll('.sidebar .panel').forEach(p => {
+    const h2 = p.querySelector(':scope > h2');
+    if (!h2) return;
+    const body = document.createElement('div');
+    body.className = 'panel-body';
+    while (h2.nextSibling) body.appendChild(h2.nextSibling);
+    p.appendChild(body);
+    if (saved[h2.textContent.trim()]) p.classList.add('collapsed');
+    h2.addEventListener('click', () => { p.classList.toggle('collapsed'); savePanelStates(); });
+  });
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────
+initObjectTypePicker();
+renderObjectsPanel();
+initPanels();
+renderDesignList();
+updateBgControlsState();
+render();
+</script>
+</body>
+</html>

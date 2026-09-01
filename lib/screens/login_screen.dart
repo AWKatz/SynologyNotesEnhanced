@@ -219,7 +219,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: cs.primaryContainer,
             borderRadius: BorderRadius.circular(10),
             boxShadow: [
               BoxShadow(
@@ -229,8 +228,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               ),
             ],
           ),
-          child: Icon(Icons.note_alt_rounded,
-              color: cs.onPrimaryContainer, size: 22),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Image.asset(
+              'assets/icons/app_icon.png',
+              width: 40,
+              height: 40,
+              fit: BoxFit.cover,
+            ),
+          ),
         ),
         const SizedBox(width: 12),
         Flexible(

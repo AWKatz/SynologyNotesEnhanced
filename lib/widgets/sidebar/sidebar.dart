@@ -52,7 +52,9 @@ class AppSidebar extends ConsumerWidget {
       child: Column(
         children: [
           _SidebarHeader(
-              displayName: displayName, isOffline: mode == AppMode.local),
+              displayName: displayName,
+              isOffline: mode == AppMode.local,
+              host: session?.host),
           Divider(color: cs.outlineVariant, height: 1),
           const SizedBox(height: 4),
           _AllNotesItem(
@@ -64,6 +66,7 @@ class AppSidebar extends ConsumerWidget {
           _FavoritesItem(isSelected: filter == NoteFilter.favorites),
           _LockedNotesItem(isSelected: filter == NoteFilter.locked),
           _SharedNotesItem(isSelected: filter == NoteFilter.shared),
+          const _SmartNotebooksItem(),
           _TrashItem(isSelected: filter == NoteFilter.trash),
           const _TodoListsItem(),
           Padding(
@@ -116,9 +119,7 @@ class AppSidebar extends ConsumerWidget {
             ),
           ),
           Divider(color: cs.outlineVariant, height: 1),
-          const _SmartNotebooksItem(),
-          Divider(color: cs.outlineVariant, height: 1),
-          _SidebarFooter(session: session, mode: mode),
+          _SidebarFooter(mode: mode),
         ],
       ),
     );
@@ -130,7 +131,12 @@ class AppSidebar extends ConsumerWidget {
 class _SidebarHeader extends ConsumerWidget {
   final String displayName;
   final bool isOffline;
-  const _SidebarHeader({required this.displayName, required this.isOffline});
+  final String? host;
+  const _SidebarHeader({
+    required this.displayName,
+    required this.isOffline,
+    this.host,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -139,39 +145,44 @@ class _SidebarHeader extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 4, 12),
       child: Row(
         children: [
-          // TEMPORARY: placeholder app mark while the real design gets
-          // finalized — swaps out the mode-colored (online/offline)
-          // customizable icon below rather than deleting it, so restoring
-          // it later is a one-line revert.
-          Image.asset(
-            'assets/icons/app_icon.png',
-            width: 32,
-            height: 32,
-            fit: BoxFit.contain,
-          ),
-          // Container(
-          //   width: 32,
-          //   height: 32,
-          //   decoration: BoxDecoration(
-          //     color: isOffline ? cs.secondaryContainer : cs.primary,
-          //     borderRadius: BorderRadius.circular(8),
-          //   ),
-          //   child: Icon(
-          //     isOffline ? Icons.phone_android_rounded : Icons.note_alt_rounded,
-          //     color: isOffline ? cs.onSecondaryContainer : cs.onPrimary,
-          //     size: 18,
-          //   ),
-          // ),
-          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              displayName,
-              style: TextStyle(
-                color: cs.onSurface,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  displayName,
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (!isOffline && host != null) ...[
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF4CAF50),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          host!,
+                          style: TextStyle(
+                              color: cs.onSurfaceVariant, fontSize: 12),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
             ),
           ),
           // Collapsing to a rail is a _ThreePanelLayout-only concept (see
@@ -207,9 +218,8 @@ class _SidebarHeader extends ConsumerWidget {
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 class _SidebarFooter extends ConsumerWidget {
-  final dynamic session;
   final AppMode? mode;
-  const _SidebarFooter({this.session, this.mode});
+  const _SidebarFooter({this.mode});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -217,90 +227,86 @@ class _SidebarFooter extends ConsumerWidget {
     final isOffline = mode == AppMode.local;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       child: Row(
         children: [
-          // Connection status indicator
-          if (!isOffline && session != null) ...[
-            Container(
-              width: 8,
-              height: 8,
-              decoration: const BoxDecoration(
-                color: Color(0xFF4CAF50),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                session.host,
-                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ] else
-            const Spacer(),
-
           // Sync — only in NAS mode
-          if (!isOffline) ...[
-            _FooterIconButton(
-              icon: Icons.sync_rounded,
-              tooltip: 'Sync',
-              onPressed: () => syncAfterMutation(ref),
-              color: cs.onSurfaceVariant,
+          if (!isOffline)
+            Expanded(
+              child: _FooterButton(
+                icon: Icons.sync_rounded,
+                label: 'Sync',
+                onPressed: () => syncAfterMutation(ref),
+                color: cs.onSurfaceVariant,
+              ),
             ),
-            const SizedBox(width: 4),
-          ],
 
           // Settings — always visible
-          _FooterIconButton(
-            icon: Icons.settings_rounded,
-            tooltip: 'Settings',
-            onPressed: () => context.push('/settings'),
-            color: cs.onSurfaceVariant,
+          Expanded(
+            child: _FooterButton(
+              icon: Icons.settings_rounded,
+              label: 'Settings',
+              onPressed: () => context.push('/settings'),
+              color: cs.onSurfaceVariant,
+            ),
           ),
 
           // Sign Out — only in NAS mode
-          if (!isOffline) ...[
-            const SizedBox(width: 4),
-            _FooterIconButton(
-              icon: Icons.logout_rounded,
-              tooltip: 'Sign Out',
-              onPressed: () async {
-                await ref.read(sessionProvider.notifier).logout();
-                ref.read(appModeProvider.notifier).state = AppMode.local;
-                if (context.mounted) context.go('/home');
-              },
-              color: cs.onSurfaceVariant,
+          if (!isOffline)
+            Expanded(
+              child: _FooterButton(
+                icon: Icons.logout_rounded,
+                label: 'Sign Out',
+                onPressed: () async {
+                  await ref.read(sessionProvider.notifier).logout();
+                  ref.read(appModeProvider.notifier).state = AppMode.local;
+                  if (context.mounted) context.go('/home');
+                },
+                color: cs.onSurfaceVariant,
+              ),
             ),
-          ],
         ],
       ),
     );
   }
 }
 
-class _FooterIconButton extends StatelessWidget {
+class _FooterButton extends StatelessWidget {
   final IconData icon;
-  final String tooltip;
+  final String label;
   final VoidCallback onPressed;
   final Color color;
 
-  const _FooterIconButton({
+  const _FooterButton({
     required this.icon,
-    required this.tooltip,
+    required this.label,
     required this.onPressed,
     required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
-      icon: Icon(icon, color: color, size: 18),
-      onPressed: onPressed,
-      tooltip: tooltip,
-      constraints: const BoxConstraints(),
-      padding: EdgeInsets.zero,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(color: color, fontSize: 10),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
