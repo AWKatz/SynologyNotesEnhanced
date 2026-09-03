@@ -49,8 +49,20 @@ flutter_launcher_icons:
   android: true
   ios: true
   remove_alpha_ios: true
+  # iOS 18+ lets the system show a dark or a monochrome ("tinted") variant of
+  # the icon depending on the user's appearance setting. Reusing the same
+  # source art works because it already has a transparent background — the
+  # OS composites it onto its own dark/tinted backdrop; desaturate handles
+  # converting it to grayscale for the tinted variant automatically.
+  image_path_ios_dark_transparent: "assets/icons/app_icon.png"
+  image_path_ios_tinted_grayscale: "assets/icons/app_icon.png"
+  desaturate_tinted_to_grayscale_ios: true
   adaptive_icon_background: "#0B1F3C"
   adaptive_icon_foreground: "assets/icons/app_icon.png"
+  # Android 13+ themed icons: a single-color silhouette (alpha derived from
+  # ink density, generated from app_icon.png) that the OS tints to match the
+  # user's wallpaper-based Material You palette.
+  adaptive_icon_monochrome: "assets/icons/app_icon_monochrome.png"
   macos:
     generate: true
     image_path: "assets/icons/app_icon.png"

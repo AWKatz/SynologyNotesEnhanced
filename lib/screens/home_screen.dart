@@ -310,12 +310,12 @@ class _MobileLayout extends ConsumerWidget {
                 NavigationDestination(
                   icon: Icon(Icons.folder_outlined),
                   selectedIcon: Icon(Icons.folder_rounded),
-                  label: 'Notebooks',
+                  label: 'Menu',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.notes_outlined),
                   selectedIcon: Icon(Icons.notes_rounded),
-                  label: 'Notes',
+                  label: 'Notebooks/Notes',
                 ),
                 NavigationDestination(
                   icon: Icon(Icons.edit_outlined),
