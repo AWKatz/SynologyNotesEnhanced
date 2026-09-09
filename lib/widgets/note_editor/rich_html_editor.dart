@@ -143,13 +143,6 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
           },
         );
       },
-      // editor.js has no other way to surface a debug console.log to
-      // anything visible during development — this WebView is its own
-      // Chromium/WebView2/WebKit process, invisible to `flutter run`'s
-      // console otherwise.
-      onConsoleMessage: (controller, message) {
-        debugPrint('[editor.js] ${message.message}');
-      },
       // The WebView is its own network stack (Chromium/WebView2), separate
       // from SynologyApiClient's http.Client — it does standard TLS
       // validation and silently fails to load inline note images (broken-

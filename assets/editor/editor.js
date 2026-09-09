@@ -390,36 +390,10 @@
   // matters for a *partial*-line selection against a directly-styled line;
   // selecting the whole line (the common case) clears it correctly, same
   // as any fully-covered element.
-  function nearestLine(node) {
-    if (node && node.nodeType === 3) node = node.parentNode;
-    while (node && node !== editor && !isLine(node)) node = node.parentNode;
-    return node;
-  }
-
-  // Temporary diagnostic — surfaces via onConsoleMessage to `flutter run`'s
-  // console (see rich_html_editor.dart), never sent anywhere off-device.
-  // Prints the exact selection shape and the affected line's outerHTML
-  // before/after, since prior fixes validated against constructed test
-  // cases but real content has kept exposing shapes those didn't cover.
-  function debugStyleOp(label, prop, value, origRange, line) {
-    try {
-      console.log('[wrapSelectionStyle:' + label + '] prop=' + prop + ' value=' + value +
-        (origRange ? (' start=' + origRange.startContainer.nodeName + '#' + origRange.startOffset +
-          ' end=' + origRange.endContainer.nodeName + '#' + origRange.endOffset +
-          ' sameContainer=' + (origRange.startContainer === origRange.endContainer)) : '') +
-        ' line=' + (line ? line.outerHTML : '(none found)'));
-    } catch (e) {
-      console.log('[wrapSelectionStyle:' + label + '] debug logging failed: ' + e);
-    }
-  }
-
   function wrapSelectionStyle(prop, value) {
     var sel = window.getSelection();
     if (!sel.rangeCount || sel.isCollapsed) return;
-    var origRange = sel.getRangeAt(0);
-    var line = nearestLine(origRange.commonAncestorContainer);
-    debugStyleOp('before', prop, value, origRange, line);
-    var b = splitSelectionBoundaries(origRange);
+    var b = splitSelectionBoundaries(sel.getRangeAt(0));
     var range = document.createRange();
     range.setStart(b.startContainer, b.startOffset);
     range.setEnd(b.endContainer, b.endOffset);
@@ -465,7 +439,6 @@
       newRange.setEndAfter(last);
       sel.addRange(newRange);
     }
-    debugStyleOp('after', prop, value, null, line);
   }
 
   function afterEdit() {
