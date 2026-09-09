@@ -197,7 +197,7 @@ void main() {
 
   test('font-size values outside the accepted range are NOT round-trippable',
       () {
-    for (final value in ['4px', '151px', '16pt', '2em']) {
+    for (final value in ['4px', '151px', '4pt', '151pt', '2em']) {
       expect(
         RichHtmlSchema.isRoundTrippable(
             '<span style="font-size: $value;">text</span>'),
@@ -205,6 +205,35 @@ void main() {
         reason: '$value should be rejected',
       );
     }
+  });
+
+  test(
+      'a pt font-size (common in pasted content) is round-trippable — an '
+      'encrypted note\'s content is opaque ciphertext to NoteStation\'s own '
+      'server, so preserving this is only ever at risk from this app\'s own '
+      'editor.js, which now leaves it untouched rather than stripping it',
+      () {
+    expect(
+      RichHtmlSchema.isRoundTrippable('<span style="font-size: 12pt;">x</span>'),
+      isTrue,
+    );
+  });
+
+  test(
+      'a decimal px font-size (WebKit getComputedStyle artifact of a pasted '
+      'pt value, e.g. 14pt × 4/3) is round-trippable', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<div style="font-size: 18.666666px;">x</div>'),
+      isTrue,
+    );
+  });
+
+  test('an inherit font-size is round-trippable', () {
+    expect(
+      RichHtmlSchema.isRoundTrippable('<b style="font-size: inherit;">x</b>'),
+      isTrue,
+    );
   });
 
   test('an unrecognized span class is NOT round-trippable', () {
@@ -241,6 +270,17 @@ void main() {
     expect(
       RichHtmlSchema.isRoundTrippable(
           '<span style="white-space: pre-wrap;">x</span>'),
+      isTrue,
+    );
+  });
+
+  test(
+      'a -webkit-tap-highlight-color style IS round-trippable (WebKit paste '
+      'cruft, meaningless to this app, dropped by editor.js on edit anyway)',
+      () {
+    expect(
+      RichHtmlSchema.isRoundTrippable(
+          '<span style="-webkit-tap-highlight-color: transparent;">x</span>'),
       isTrue,
     );
   });

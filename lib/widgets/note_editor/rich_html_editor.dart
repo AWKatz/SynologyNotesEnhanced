@@ -110,6 +110,8 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
       _run('window.cmdFontColor(${_jsString(_toHex(color))})');
   Future<void> highlight(Color color) =>
       _run('window.cmdHighlight(${_jsString(_toHex(color))})');
+  Future<void> clearFontColor() => _run('window.cmdClearFontColor()');
+  Future<void> clearHighlight() => _run('window.cmdClearHighlight()');
   Future<void> fontFamily(String name) =>
       _run('window.cmdFontFamily(${_jsString(name)})');
 
@@ -140,6 +142,13 @@ class RichHtmlEditorState extends State<RichHtmlEditor> {
             return null;
           },
         );
+      },
+      // editor.js has no other way to surface a debug console.log to
+      // anything visible during development — this WebView is its own
+      // Chromium/WebView2/WebKit process, invisible to `flutter run`'s
+      // console otherwise.
+      onConsoleMessage: (controller, message) {
+        debugPrint('[editor.js] ${message.message}');
       },
       // The WebView is its own network stack (Chromium/WebView2), separate
       // from SynologyApiClient's http.Client — it does standard TLS

@@ -715,7 +715,11 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
                     TextStyle(fontSize: 15, color: cs.onSurface, height: 1.6),
               ),
             ),
-          if (!_isEditable && !_isEncrypted) ...[
+          // _buildReadView only runs once an encrypted note is unlocked (the
+          // passcode gate above returns early otherwise), so _isEncrypted no
+          // longer means "still locked" here — it's just as relevant to show
+          // this banner as for a plain note that fails the same schema check.
+          if (!_isEditable) ...[
             const SizedBox(height: 24),
             _RichReadOnlyBanner(cs: cs),
           ],
@@ -993,6 +997,12 @@ class _EncryptNoteDialogState extends ConsumerState<_EncryptNoteDialog> {
   }
 }
 
+/// Sentinel [_pickColor] pops to mean "clear the property" rather than
+/// "apply this color" — distinct from popping null, which means the dialog
+/// was cancelled/dismissed and nothing should change. Not a color any real
+/// swatch below can produce.
+const _clearColorSentinel = Colors.transparent;
+
 /// One-off swatch picker for applying a text/highlight color to the current
 /// rich-editor selection — distinct from note_color_provider's persisted
 /// per-note color labels; this is a live formatting action, not saved state.
@@ -1004,17 +1014,35 @@ Future<Color?> _pickColor(BuildContext context) {
       content: Wrap(
         spacing: 10,
         runSpacing: 10,
-        children: baseColorPalette
-            .map((c) => InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () => Navigator.of(context).pop(c),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-                  ),
-                ))
-            .toList(),
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: () => Navigator.of(context).pop(_clearColorSentinel),
+            child: Tooltip(
+              message: 'Remove',
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: Theme.of(context).colorScheme.outline),
+                ),
+                child: Icon(Icons.close_rounded,
+                    size: 18, color: Theme.of(context).colorScheme.outline),
+              ),
+            ),
+          ),
+          ...baseColorPalette.map((c) => InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () => Navigator.of(context).pop(c),
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+                ),
+              )),
+        ],
       ),
       actions: [
         TextButton(
@@ -1227,9 +1255,17 @@ class _EditorToolbar extends ConsumerWidget {
   RichHtmlEditorState? get _rich => richEditorKey.currentState;
 
   Future<void> _pickAndApply(
-      BuildContext context, ValueChanged<Color> apply) async {
+    BuildContext context, {
+    required ValueChanged<Color> onColor,
+    required VoidCallback onClear,
+  }) async {
     final color = await _pickColor(context);
-    if (color != null) apply(color);
+    if (color == null) return; // dialog cancelled/dismissed
+    if (color == _clearColorSentinel) {
+      onClear();
+    } else {
+      onColor(color);
+    }
   }
 
   @override
@@ -1280,13 +1316,19 @@ class _EditorToolbar extends ConsumerWidget {
                     _DropdownToolButton(
                         icon: Icons.format_color_text_rounded,
                         tooltip: 'Text color',
-                        onPressed: () =>
-                            _pickAndApply(context, (c) => _rich?.fontColor(c))),
+                        onPressed: () => _pickAndApply(
+                              context,
+                              onColor: (c) => _rich?.fontColor(c),
+                              onClear: () => _rich?.clearFontColor(),
+                            )),
                     _DropdownToolButton(
                         icon: Icons.format_color_fill_rounded,
                         tooltip: 'Highlight',
-                        onPressed: () =>
-                            _pickAndApply(context, (c) => _rich?.highlight(c))),
+                        onPressed: () => _pickAndApply(
+                              context,
+                              onColor: (c) => _rich?.highlight(c),
+                              onClear: () => _rich?.clearHighlight(),
+                            )),
                     _DropdownToolButton(
                         icon: Icons.format_size_rounded,
                         tooltip: 'Text size',

@@ -1,5 +1,6 @@
 import '../api/synology_api_client.dart';
 import '../crypto/note_crypto.dart';
+import '../rich_html/plain_text.dart';
 import '../../models/note.dart';
 import '../../models/notebook.dart';
 import '../../models/shelf.dart';
@@ -251,10 +252,7 @@ class NoteStationService {
   }
 
   /// Plain-text preview the way the web client derives `brief` from note HTML.
-  static String _briefFromHtml(String html) => html
-      .replaceAll(RegExp(r'<[^>]+>'), ' ')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  static String _briefFromHtml(String html) => htmlToPlainText(html);
 
   /// Uploads [fileBytes] as a new image attachment while saving [content]
   /// (which must already contain the `<img ref="$ref">` tag for this upload)

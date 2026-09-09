@@ -1,4 +1,5 @@
 import '../core/crypto/note_crypto.dart';
+import '../core/rich_html/plain_text.dart';
 import 'note_acl.dart';
 
 class Note {
@@ -53,7 +54,7 @@ class Note {
   String get displayExcerpt {
     if (isEncrypted || NoteCrypto.isEncrypted(content)) return '';
     if (excerpt != null && excerpt!.isNotEmpty) return excerpt!;
-    final plain = content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
+    final plain = htmlToPlainText(content);
     return plain.length > 120 ? '${plain.substring(0, 120)}…' : plain;
   }
 

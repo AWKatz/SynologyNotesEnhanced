@@ -111,11 +111,28 @@ class RichHtmlSchema {
   /// argument for arbitrary percentage/keyword positions.
   static const _allowedObjectPosition = {'center'};
 
-  /// Bounds cmdFontSize's user-typed px value to a sane range (matches the
-  /// picker's own clamp — see note_editor.dart's font-size dialog) without
-  /// pinning it to a fixed preset list, since the whole point is letting
-  /// the user pick any value.
-  static final _fontSizePx = RegExp(r'^([6-9]|[1-9][0-9]|1[0-4][0-9]|150)px$');
+  /// Matches a bare numeric font-size value with its unit, e.g. "12pt" or
+  /// "18.666666px" — the latter a WebKit `getComputedStyle` artifact from
+  /// pasted content (≈14pt × 4/3), not anything a user or this app's editor
+  /// wrote deliberately.
+  static final _fontSizeValue = RegExp(r'^(\d+(?:\.\d+)?)(px|pt)$');
+
+  /// True for a font-size value confirmed safe to preserve: cmdFontSize's
+  /// own user-typed px output (bounded to the picker's clamp — see
+  /// note_editor.dart's font-size dialog), the same numeric range in pt, or
+  /// the parent-inheriting keyword `inherit`. Unlike every other property
+  /// this schema gates, font-size on an *encrypted* note is never at risk
+  /// from NoteStation's own server-side sanitizer — encrypted content is an
+  /// opaque ciphertext blob to the server, never parsed as HTML there — so
+  /// the only thing that could mangle a pt/decimal value is this app's own
+  /// editor.js, which simply leaves it untouched rather than rewriting it.
+  static bool _isAllowedFontSize(String value) {
+    if (value == 'inherit') return true;
+    final match = _fontSizeValue.firstMatch(value);
+    if (match == null) return false;
+    final n = double.tryParse(match.group(1)!);
+    return n != null && n >= 6 && n <= 150;
+  }
 
   // Hyphen included: real captured class is "syno-fontsize-x-large", which
   // the old `[a-z]+` (no hyphen) rejected — a real value the schema was
@@ -204,7 +221,9 @@ class RichHtmlSchema {
               continue;
             }
             final prop = trimmed.substring(0, sep).trim().toLowerCase();
-            if (prop == 'white-space') continue;
+            if (prop == 'white-space' || prop == '-webkit-tap-highlight-color') {
+              continue;
+            }
             final value = trimmed.substring(sep + 1).trim().toLowerCase();
             if (!_allowedStyleProps.contains(prop)) {
               reasons.add('disallowed style property "$prop" on <$tag>');
@@ -224,8 +243,12 @@ class RichHtmlSchema {
                 !_allowedObjectPosition.contains(value)) {
               reasons.add('disallowed object-position value on <$tag>');
             }
-            if (prop == 'font-size' && !_fontSizePx.hasMatch(value)) {
-              reasons.add('disallowed font-size value on <$tag>');
+            // The value itself (a CSS length/keyword) isn't sensitive note
+            // content, unlike text or href/src — surfacing it here (unlike
+            // every other category above) is what lets a real rejection get
+            // diagnosed without needing to see the note's actual body.
+            if (prop == 'font-size' && !_isAllowedFontSize(value)) {
+              reasons.add('disallowed font-size value "$value" on <$tag>');
             }
           }
         }
@@ -336,6 +359,15 @@ class RichHtmlSchema {
         // through means that spacing visually collapses to normal on first
         // edit (cosmetic only — no note content is lost).
         if (prop == 'white-space') continue;
+        // WebKit's own vendor-prefixed property for disabling the mobile tap
+        // highlight overlay — pure browser chrome, not note content, and
+        // meaningless to both the read view (flutter_widget_from_html_core)
+        // and editor.css. Common paste cruft from anything copied out of a
+        // WebKit-based app or mobile browser. Same reasoning and same
+        // outcome as white-space above: editor.js's sanitizer already drops
+        // it on edit regardless, so gating the whole note on it protects
+        // nothing.
+        if (prop == '-webkit-tap-highlight-color') continue;
         if (!_allowedStyleProps.contains(prop)) {
           onReject?.call('disallowed style property "$prop" on <$tag>');
           return false;
@@ -358,7 +390,7 @@ class RichHtmlSchema {
           onReject?.call('disallowed object-position value "$value"');
           return false;
         }
-        if (prop == 'font-size' && !_fontSizePx.hasMatch(value)) {
+        if (prop == 'font-size' && !_isAllowedFontSize(value)) {
           onReject?.call('disallowed font-size value "$value"');
           return false;
         }

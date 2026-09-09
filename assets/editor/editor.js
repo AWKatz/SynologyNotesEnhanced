@@ -39,8 +39,19 @@
   var ALLOWED_TEXT_ALIGN = new Set(['left', 'center', 'right', 'justify']);
   var ALLOWED_OBJECT_FIT = new Set(['cover', 'contain', 'fill', 'none', 'scale-down']);
   var ALLOWED_OBJECT_POSITION = new Set(['center']);
-  // Matches rich_html_schema.dart's _fontSizePx bound (6-150px).
-  var FONT_SIZE_PX = /^([6-9]|[1-9][0-9]|1[0-4][0-9]|150)px$/;
+  // Mirrors rich_html_schema.dart's _isAllowedFontSize: cmdFontSize's own
+  // px output, the same numeric range in pt (pasted content commonly uses
+  // pt, and decimals like "18.666666px" are a WebKit getComputedStyle
+  // artifact of pt values — neither is anything this app's own editor
+  // writes, but both are safe to leave untouched), or the inherit keyword.
+  var FONT_SIZE_VALUE = /^(\d+(?:\.\d+)?)(px|pt)$/;
+  function isAllowedFontSize(value) {
+    if (value === 'inherit') return true;
+    var match = FONT_SIZE_VALUE.exec(value);
+    if (!match) return false;
+    var n = parseFloat(match[1]);
+    return n >= 6 && n <= 150;
+  }
   // Hyphen included: real captured class is "syno-fontsize-x-large", which
   // the old (no-hyphen) pattern rejected.
   var FONT_SIZE_CLASS = /^syno-fontsize-[a-z-]+$/;
@@ -137,7 +148,7 @@
         if (prop === 'text-align' && !ALLOWED_TEXT_ALIGN.has(value.toLowerCase())) return;
         if (prop === 'object-fit' && !ALLOWED_OBJECT_FIT.has(value.toLowerCase())) return;
         if (prop === 'object-position' && !ALLOWED_OBJECT_POSITION.has(value.toLowerCase())) return;
-        if (prop === 'font-size' && !FONT_SIZE_PX.test(value.toLowerCase())) return;
+        if (prop === 'font-size' && !isAllowedFontSize(value.toLowerCase())) return;
         if (value) kept.push(prop + ': ' + value);
       });
       if (kept.length) el.setAttribute('style', kept.join('; ') + ';');
@@ -157,23 +168,304 @@
     }
   }
 
+  function clearStylePropDeep(node, prop) {
+    if (node.nodeType !== 1 && node.nodeType !== 11) return; // element or fragment
+    if (node.nodeType === 1 && node.style) node.style.removeProperty(prop);
+    // Snapshot first: unwrapIfBare below can remove `child` from `node`,
+    // which would corrupt a live iteration over node.childNodes itself.
+    Array.prototype.slice.call(node.childNodes).forEach(function (child) {
+      clearStylePropDeep(child, prop);
+      unwrapIfBare(child);
+    });
+  }
+
+  // Block-level ("line") tags — see ALLOWED_TAGS. These can legitimately
+  // carry a style like background-color directly (confirmed from a real
+  // note's own <div style="font-size:...">), but unlike an inline element
+  // they must never be split: each one is a whole visual line/paragraph, so
+  // cutting one in two would turn a single line into two stacked ones.
+  var LINE_TAGS = { div: 1, p: 1, li: 1, td: 1, tr: 1, table: 1, tbody: 1,
+    ul: 1, ol: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1 };
+  function isLine(el) { return !!LINE_TAGS[el.tagName.toLowerCase()]; }
+
+  // Collapses a formatting wrapper that carries no attribute at all —
+  // typically because its style property was just cleared above, or it's
+  // the element wrapSelectionStyle moved content OUT of when building a
+  // fresh replacement — back into plain content. Without this, repeatedly
+  // highlighting/clearing (or re-highlighting with a new color) the same
+  // text nests a new empty wrapper every time instead of replacing the old
+  // one. Never applied to a line element (see LINE_TAGS): those represent
+  // a whole line, so merging one's content into its parent would corrupt
+  // the note's line structure, not just tidy up a leftover wrapper.
+  function unwrapIfBare(el) {
+    // Only <span> — the one tag wrapSelectionStyle itself ever creates —
+    // is ever purely a style carrier. <b>/<i>/<u>/<a>/etc. convey real
+    // meaning through their tag name alone regardless of attributes, so
+    // unwrapping one just because it happens to have none left would
+    // silently destroy formatting unrelated to whatever style was cleared.
+    if (el.nodeType !== 1 || !el.parentNode || el.tagName.toLowerCase() !== 'span') return;
+    var style = el.getAttribute('style');
+    if (style && style.trim()) return;
+    var hasOtherAttr = Array.prototype.some.call(el.attributes, function (a) {
+      return a.name !== 'style';
+    });
+    if (hasOtherAttr) return;
+    var parent = el.parentNode;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  }
+
+  function nearestCommonAncestor(a, b) {
+    var ancestors = [];
+    for (var n = a; n; n = n.parentNode) ancestors.push(n);
+    for (var m = b; m; m = m.parentNode) {
+      if (ancestors.indexOf(m) !== -1) return m;
+    }
+    return null;
+  }
+
+  // Cuts inline element [container] into up to three siblings so that
+  // [container] itself (mutated in place, keeping its own attributes) ends
+  // up holding exactly children [i, j) — the other two pieces, if any, are
+  // clones carrying the same attributes, covering what was before/after.
+  // Handles both cuts together, rather than as two independent
+  // single-point splits, so neither index can go stale partway through
+  // (splitting a shared ancestor for one boundary shifts the child indices
+  // the OTHER boundary's already-computed position depended on — see
+  // splitSelectionBoundaries, which is what actually decides when this
+  // joint form vs. the single-sided [splitInlineAtOffset] is safe to use).
+  // Returns the equivalent (i, j) one level up, as indices into
+  // container's parent.
+  function splitInlineRun(container, i, j) {
+    // childNodes is a live NodeList (no .slice() of its own) — snapshot it
+    // into a real array via Array.prototype, same as elsewhere in this
+    // file, since we're about to move nodes out of it while iterating.
+    var kids = Array.prototype.slice.call(container.childNodes);
+    var n = kids.length;
+    var parent = container.parentNode;
+
+    if (j < n) {
+      var after = container.cloneNode(false);
+      kids.slice(j, n).forEach(function (k) { after.appendChild(k); });
+      parent.insertBefore(after, container.nextSibling);
+    }
+    if (i > 0) {
+      var before = container.cloneNode(false);
+      kids.slice(0, i).forEach(function (k) { before.appendChild(k); });
+      parent.insertBefore(before, container);
+    }
+    // container's own children now naturally hold just kids[i, j) — the
+    // before/after slices above were moved out of it via appendChild.
+
+    var idx = Array.prototype.indexOf.call(parent.childNodes, container);
+    return { container: parent, start: idx, end: idx + 1 };
+  }
+
+  // Single-sided version of the above, safe only when nothing about the
+  // OTHER selection boundary still depends on container's current child
+  // indices (see splitSelectionBoundaries). A boundary already at one of
+  // container's own edges (offset 0 or childNodes.length) needs no split —
+  // just re-expressed one level up.
+  function splitInlineAtOffset(container, offset) {
+    var parent = container.parentNode;
+    var idx = Array.prototype.indexOf.call(parent.childNodes, container);
+    if (offset <= 0) return { container: parent, offset: idx };
+    if (offset >= container.childNodes.length) return { container: parent, offset: idx + 1 };
+    var clone = container.cloneNode(false);
+    while (container.childNodes.length > offset) clone.appendChild(container.childNodes[offset]);
+    parent.insertBefore(clone, container.nextSibling);
+    return { container: parent, offset: idx + 1 };
+  }
+
+  // Promotes a boundary that's still mid-Text to a plain child-index
+  // position in the text node's parent, splitting the text node (via the
+  // native splitText()) only if the boundary sits strictly inside it.
+  function promoteTextBoundary(container, offset) {
+    if (container.nodeType !== 3) return { container: container, offset: offset };
+    var parent = container.parentNode;
+    var idx = Array.prototype.indexOf.call(parent.childNodes, container);
+    if (offset > 0 && offset < container.data.length) {
+      container.splitText(offset);
+      offset = idx + 1;
+    } else {
+      offset = offset <= 0 ? idx : idx + 1;
+    }
+    return { container: parent, offset: offset };
+  }
+
+  // Promotes BOTH boundaries of a single shared Text node together — see
+  // splitSelectionBoundaries for why this can't safely be done as two
+  // separate promoteTextBoundary() calls when they're the same node.
+  function promoteSharedTextBoundary(node, startOffset, endOffset) {
+    var parent = node.parentNode;
+    var mid = node;
+    if (endOffset < node.data.length) node.splitText(endOffset);
+    if (startOffset > 0) mid = node.splitText(startOffset);
+    var idx = Array.prototype.indexOf.call(parent.childNodes, mid);
+    return { container: parent, start: idx, end: idx + 1 };
+  }
+
+  // Normalizes both Range boundaries to clean node-boundary positions,
+  // splitting any inline element that straddles either one (each half
+  // keeping the original's own style/attributes via cloneNode) so that by
+  // the time extractContents() runs, everything it pulls out is either
+  // wholly inside the selection or was already split off outside it.
+  //
+  // The two boundaries are climbed JOINTLY (via splitInlineRun) wherever
+  // they still share an ancestor that itself needs splitting — normalizing
+  // one side first and the other second, as two fully independent passes,
+  // silently breaks whenever a shared ancestor gets split for the first
+  // side: the resulting new sibling shifts the child index the second
+  // side's already-computed position depended on, and that snapshot is
+  // never revisited (this is precisely what going from "clears the whole
+  // highlighted line" to "clears only within a highlighted line" exposed:
+  // both boundaries fell inside the very same <span>, and the two-pass
+  // version silently mis-selected which characters ended up inside vs.
+  // outside it). Below wherever the two boundaries diverge into different
+  // subtrees, each is climbed independently instead (safe: nothing that
+  // happens purely within one boundary's own subtree can shift indices
+  // the other boundary's position depends on) until they either reconverge
+  // (uncommon: e.g. two adjacent inline elements under one shared line,
+  // like "<b>bold</b>highlighted") or each separately reaches its own line
+  // element — a genuinely multi-line selection, which is left exactly as
+  // extractContents() already handles it natively; nothing here attempts
+  // to merge two different lines into one range.
+  //
+  // Returns {startContainer, startOffset, endContainer, endOffset} for
+  // setting directly on a Range via setStart/setEnd.
+  function splitSelectionBoundaries(range) {
+    var sc = range.startContainer, so = range.startOffset;
+    var ec = range.endContainer, eo = range.endOffset;
+
+    if (sc === ec && sc.nodeType === 3) {
+      var joint = promoteSharedTextBoundary(sc, so, eo);
+      sc = ec = joint.container; so = joint.start; eo = joint.end;
+    } else {
+      if (sc.nodeType === 3) { var ps = promoteTextBoundary(sc, so); sc = ps.container; so = ps.offset; }
+      if (ec.nodeType === 3) { var pe = promoteTextBoundary(ec, eo); ec = pe.container; eo = pe.offset; }
+    }
+
+    if (sc !== ec) {
+      var stopAt = nearestCommonAncestor(sc, ec);
+      while (sc !== stopAt && !isLine(sc)) {
+        var rs = splitInlineAtOffset(sc, so); sc = rs.container; so = rs.offset;
+      }
+      while (ec !== stopAt && !isLine(ec)) {
+        var re = splitInlineAtOffset(ec, eo); ec = re.container; eo = re.offset;
+      }
+    }
+
+    if (sc === ec) {
+      while (sc !== editor && !isLine(sc)) {
+        var pos = splitInlineRun(sc, so, eo);
+        sc = pos.container; so = pos.start; eo = pos.end;
+      }
+      ec = sc; // container is now shared again after the joint climb
+    }
+    return { startContainer: sc, startOffset: so, endContainer: ec, endOffset: eo };
+  }
+
+  // Applies [value] for CSS [prop] to the current selection, replacing
+  // (never nesting inside or around) whatever that selection already had —
+  // re-selecting an already-highlighted run and picking a new color used to
+  // wrap a fresh span AROUND the existing one (range.surroundContents wraps
+  // a wholly-selected existing element from the outside rather than
+  // touching it), leaving the old, innermost background-color painted on
+  // top so nothing visibly changed, and clearing it had nothing to fall
+  // back on at all. [splitSelectionBoundaries] fixes both: normalizing each
+  // boundary first guarantees any element straddling the selection edge
+  // gets cut cleanly in two, so by the time extractContents() runs,
+  // everything it pulls out is either wholly inside the selection (and
+  // gets [prop] stripped) or was already split off outside it (left
+  // untouched, keeping its original style). [value] of null/'' clears the
+  // property instead of setting it — with nothing left to reapply, the
+  // cleaned fragment is reinserted directly, with no new wrapper span.
+  //
+  // KNOWN GAP: if a *line* element itself (a LINE_TAGS ancestor, not an
+  // inline one) carries [prop] directly and the selection covers only part
+  // of its content, that element is never split (by design — see
+  // LINE_TAGS), so [prop] is cleared/replaced on the selected portion but
+  // the line's own style still applies underneath for that same portion,
+  // and the untouched remainder no longer visibly differs from it. Only
+  // matters for a *partial*-line selection against a directly-styled line;
+  // selecting the whole line (the common case) clears it correctly, same
+  // as any fully-covered element.
+  function nearestLine(node) {
+    if (node && node.nodeType === 3) node = node.parentNode;
+    while (node && node !== editor && !isLine(node)) node = node.parentNode;
+    return node;
+  }
+
+  // Temporary diagnostic — surfaces via onConsoleMessage to `flutter run`'s
+  // console (see rich_html_editor.dart), never sent anywhere off-device.
+  // Prints the exact selection shape and the affected line's outerHTML
+  // before/after, since prior fixes validated against constructed test
+  // cases but real content has kept exposing shapes those didn't cover.
+  function debugStyleOp(label, prop, value, origRange, line) {
+    try {
+      console.log('[wrapSelectionStyle:' + label + '] prop=' + prop + ' value=' + value +
+        (origRange ? (' start=' + origRange.startContainer.nodeName + '#' + origRange.startOffset +
+          ' end=' + origRange.endContainer.nodeName + '#' + origRange.endOffset +
+          ' sameContainer=' + (origRange.startContainer === origRange.endContainer)) : '') +
+        ' line=' + (line ? line.outerHTML : '(none found)'));
+    } catch (e) {
+      console.log('[wrapSelectionStyle:' + label + '] debug logging failed: ' + e);
+    }
+  }
+
   function wrapSelectionStyle(prop, value) {
     var sel = window.getSelection();
     if (!sel.rangeCount || sel.isCollapsed) return;
-    var range = sel.getRangeAt(0);
-    var span = document.createElement('span');
-    span.style.setProperty(prop, value);
-    try {
-      range.surroundContents(span);
-    } catch (e) {
-      var frag = range.extractContents();
+    var origRange = sel.getRangeAt(0);
+    var line = nearestLine(origRange.commonAncestorContainer);
+    debugStyleOp('before', prop, value, origRange, line);
+    var b = splitSelectionBoundaries(origRange);
+    var range = document.createRange();
+    range.setStart(b.startContainer, b.startOffset);
+    range.setEnd(b.endContainer, b.endOffset);
+
+    // A line-level ancestor whose entire (now boundary-clean) content is
+    // inside range also needs [prop] cleared directly — see this
+    // function's KNOWN GAP note above for what this does NOT cover.
+    var lineAncestors = [];
+    if (range.startContainer === range.endContainer && isLine(range.startContainer)) {
+      var line = range.startContainer;
+      if (range.startOffset === 0 && range.endOffset === line.childNodes.length) {
+        lineAncestors.push(line);
+      }
+    }
+
+    var frag = range.extractContents();
+    clearStylePropDeep(frag, prop);
+    lineAncestors.forEach(function (el) {
+      if (el.style) el.style.removeProperty(prop);
+    });
+
+    var first, last;
+    if (value) {
+      var span = document.createElement('span');
+      span.style.setProperty(prop, value);
       span.appendChild(frag);
       range.insertNode(span);
+      first = last = span;
+    } else {
+      var nodes = Array.prototype.slice.call(frag.childNodes);
+      first = nodes[0];
+      last = nodes[nodes.length - 1];
+      range.insertNode(frag);
     }
+
     sel.removeAllRanges();
     var newRange = document.createRange();
-    newRange.selectNodeContents(span);
-    sel.addRange(newRange);
+    if (value) {
+      newRange.selectNodeContents(first);
+      sel.addRange(newRange);
+    } else if (first && last) {
+      newRange.setStartBefore(first);
+      newRange.setEndAfter(last);
+      sel.addRange(newRange);
+    }
+    debugStyleOp('after', prop, value, null, line);
   }
 
   function afterEdit() {
@@ -673,6 +965,12 @@
   };
   window.cmdHighlight = function (hex) {
     withSelection(function () { wrapSelectionStyle('background-color', hex); });
+  };
+  window.cmdClearFontColor = function () {
+    withSelection(function () { wrapSelectionStyle('color', null); });
+  };
+  window.cmdClearHighlight = function () {
+    withSelection(function () { wrapSelectionStyle('background-color', null); });
   };
   window.cmdFontFamily = function (name) {
     withSelection(function () { wrapSelectionStyle('font-family', name); });

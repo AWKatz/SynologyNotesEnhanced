@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../core/crypto/note_crypto.dart';
+import '../core/rich_html/plain_text.dart';
 import '../models/note.dart';
 import '../models/note_version.dart';
 import '../models/notebook.dart';
@@ -170,7 +171,7 @@ class LocalNotesRepository implements NotesRepository {
       'mtime': now,
       'is_starred': false,
       'is_encrypted': false,
-      'snippet': content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim(),
+      'snippet': htmlToPlainText(content),
     };
 
     // Write full note file
@@ -227,7 +228,7 @@ class LocalNotesRepository implements NotesRepository {
       'mtime': now,
       'is_starred': updated.isFavorite,
       'is_encrypted': updated.isEncrypted,
-      'snippet': updated.content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim(),
+      'snippet': htmlToPlainText(updated.content),
     };
 
     // Write full note file
@@ -250,7 +251,7 @@ class LocalNotesRepository implements NotesRepository {
   Future<Note> encryptNote(
       {required Note note, required String password}) async {
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final plainBrief = note.content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
+    final plainBrief = htmlToPlainText(note.content);
     final updated = note.copyWith(
       content: NoteCrypto.encrypt(note.content, password),
       isEncrypted: true,
@@ -362,8 +363,7 @@ class LocalNotesRepository implements NotesRepository {
         'mtime': sec(note.updatedAt),
         'is_starred': note.isFavorite,
         'is_encrypted': note.isEncrypted,
-        'snippet': note.excerpt ??
-            note.content.replaceAll(RegExp(r'<[^>]+>'), ' ').trim(),
+        'snippet': note.excerpt ?? htmlToPlainText(note.content),
       };
       File('${dir.path}/${note.id}.json').writeAsStringSync(jsonEncode(data));
       index.removeWhere((j) => (j['note_id'] ?? j['id']) == note.id);
