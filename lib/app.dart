@@ -3,8 +3,12 @@ import 'dart:math' show min;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'core/services/notification_service.dart';
+import 'models/todo.dart';
 import 'providers/app_mode_provider.dart';
+import 'providers/reminder_settings_provider.dart';
 import 'providers/theme_provider.dart';
+import 'providers/todos_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
@@ -162,14 +166,60 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
 });
 
-class SynologyNoteApp extends ConsumerWidget {
+class SynologyNoteApp extends ConsumerStatefulWidget {
   const SynologyNoteApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SynologyNoteApp> createState() => _SynologyNoteAppState();
+}
+
+class _SynologyNoteAppState extends ConsumerState<SynologyNoteApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Picks up todos changed via another client (the official DS Note app,
+    // another device) while this one was backgrounded — every mutation made
+    // *in* this app, and cold start, already reach the todosProvider
+    // listener below via syncTodosAfterMutation's invalidate.
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(todosProvider);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(routerProvider);
     final themeMode = ref.watch(themeModeProvider);
     final accent = ref.watch(accentColorProvider) ?? AppTheme.defaultSeed;
+
+    // Single reconciliation path for scheduled reminders and the app icon
+    // badge — fires on cold start, every todo create/update/delete (all of
+    // which funnel through syncTodosAfterMutation's invalidate, confirmed
+    // centralized — see todos_provider.dart), and app resume (via
+    // didChangeAppLifecycleState above), rather than patching every
+    // individual mutation call site in todos_screen.dart.
+    ref.listen<AsyncValue<List<Todo>>>(todosProvider, (previous, next) {
+      final todos = next.valueOrNull;
+      if (todos == null) return;
+      final enabled = ref.read(remindersEnabledProvider);
+      final time = ref.read(reminderTimeProvider);
+      NotificationService.instance
+          .reconcileAll(todos, enabled: enabled, time: time);
+      NotificationService.instance
+          .updateBadge(todos.where(isDueToday).length);
+    });
 
     return MaterialApp.router(
       title: 'Synology Notes Enhanced',

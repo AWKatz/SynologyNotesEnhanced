@@ -30,6 +30,10 @@
 		<true/>
 		<key>NSLocalNetworkUsageDescription</key>
 		<string>Synology Notes Enhanced connects to your Synology NAS on your local network to sync notes.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Synology Notes Enhanced uses the camera to insert a photo into a note.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Synology Notes Enhanced uses your photo library to insert a picture into a note.</string>
 		<key>UIApplicationSceneManifest</key>
 		<dict>
 			<key>UIApplicationSupportsMultipleScenes</key>

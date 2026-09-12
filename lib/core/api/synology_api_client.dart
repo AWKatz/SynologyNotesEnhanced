@@ -225,6 +225,75 @@ class SynologyApiClient {
     return data as Map<String, dynamic>;
   }
 
+  /// Generic call for core DSM APIs (`SYNO.API.*`, e.g. `SYNO.FileStation.*`)
+  /// — distinct from [call], which is hardcoded to NoteStation's own webapi
+  /// entry. Unlike NoteStation's `requestFormat: JSON` convention (where
+  /// even plain strings get JSON-quoted), FileStation and other standard
+  /// `SYNO.API.*` families take bare scalar params the usual CGI way — a
+  /// path is sent as `folder_path=/volume1/foo`, not `"\/volume1\/foo"` —
+  /// with only actual arrays/objects JSON-encoded. See [_encodeCoreParams].
+  ///
+  /// FileStation itself is one of Synology's officially published Web APIs
+  /// (unlike NoteStation, which this project reverse-engineers), so this is
+  /// implemented from that published spec — still worth confirming against
+  /// a real NAS, since exact shapes can drift slightly across DSM versions
+  /// even for documented APIs.
+  Future<Map<String, dynamic>> callCore({
+    required String api,
+    required int version,
+    required String method,
+    Map<String, dynamic>? params,
+  }) async {
+    final data = await _call(
+      api: api,
+      version: version,
+      method: method,
+      params: params == null ? null : _encodeCoreParams(params),
+      entryPath: _coreEntry,
+    );
+    if (data == null) return {};
+    return data as Map<String, dynamic>;
+  }
+
+  /// Multipart upload for core DSM APIs (`SYNO.FileStation.Upload`) —
+  /// distinct from [callMultipart], which encodes NoteStation's specific
+  /// (reverse-engineered, HAR-verified) quirk of putting `api`/`version`/
+  /// `method` on the URL's query string. FileStation's officially published
+  /// Upload API instead expects those three as ordinary multipart form
+  /// fields alongside everything else, which is what this sends.
+  Future<Map<String, dynamic>> callCoreMultipart({
+    required String api,
+    required int version,
+    required String method,
+    required Map<String, dynamic> fields,
+    required String fileFieldName,
+    required List<int> fileBytes,
+    required String fileName,
+  }) async {
+    final request =
+        http.MultipartRequest('POST', Uri.parse('$baseUrl$_coreEntry'));
+    request.fields['api'] = api;
+    request.fields['version'] = version.toString();
+    request.fields['method'] = method;
+    if (_sid != null) request.fields['_sid'] = _sid!;
+    if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
+    request.fields.addAll(_encodeCoreParams(fields));
+    request.files.add(http.MultipartFile.fromBytes(fileFieldName, fileBytes,
+        filename: fileName));
+
+    final http.Response response;
+    try {
+      final streamed = await _http.send(request);
+      response = await http.Response.fromStream(streamed);
+    } catch (e) {
+      throw ApiException(code: -1, message: 'Network error: $e');
+    }
+
+    final data = _parseResponse(response);
+    if (data == null) return {};
+    return data as Map<String, dynamic>;
+  }
+
   /// Uploads a file as part of a NoteStation `Note.set` call — VERIFIED
   /// (2026-07-25 HAR capture): unlike a typical file-upload API, NoteStation
   /// attaches images to a note by sending the whole save (content, ver,
@@ -296,6 +365,31 @@ class SynologyApiClient {
         encoded[key] = value ? 'true' : 'false';
       } else {
         // String, List, Map, and anything else → JSON literal.
+        encoded[key] = jsonEncode(value);
+      }
+    });
+    return encoded;
+  }
+
+  /// Bare/CGI-style param encoding for core `SYNO.API.*` calls (see
+  /// [callCore]/[callCoreMultipart]) — a plain string is sent as-is, unlike
+  /// [_encodeParams]'s NoteStation-specific JSON-quoting.
+  static Map<String, String> _encodeCoreParams(Map<String, dynamic> params) {
+    final encoded = <String, String>{};
+    params.forEach((key, value) {
+      if (value == null) return;
+      if (value is ExplicitNull) {
+        encoded[key] = 'null';
+        return;
+      }
+      if (value is String) {
+        encoded[key] = value;
+      } else if (value is num) {
+        encoded[key] = value.toString();
+      } else if (value is bool) {
+        encoded[key] = value ? 'true' : 'false';
+      } else {
+        // Lists/Maps — e.g. a JSON array for a multi-path FileStation call.
         encoded[key] = jsonEncode(value);
       }
     });

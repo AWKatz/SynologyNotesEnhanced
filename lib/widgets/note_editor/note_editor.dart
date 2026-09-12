@@ -1,10 +1,13 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart'
+    hide ImageSource;
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../core/crypto/note_crypto.dart';
 import '../../core/rich_html/rich_html_schema.dart';
@@ -62,6 +65,10 @@ class NoteEditor extends ConsumerWidget {
     );
   }
 }
+
+/// Options offered by the mobile insert-image bottom sheet — see
+/// _NoteEditorContentState._insertImage.
+enum _ImageSourceChoice { camera, gallery, files }
 
 class _NoteEditorContent extends ConsumerStatefulWidget {
   final Note note;
@@ -492,11 +499,10 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
     }
   }
 
-  /// Picks an image, inserts an optimistic live-preview into the rich
-  /// editor immediately, and stashes the bytes for _saveNote to actually
-  /// upload — mirrors how every other toolbar action here only takes effect
-  /// on Save (see NoteStationService.uploadNoteAttachment's doc comment for
-  /// why upload can't just happen right away).
+  /// Entry point for the toolbar's "insert image" button. On mobile, offers
+  /// a native Camera/Photo Library choice (matching what DS Note itself
+  /// offers) alongside Files; desktop goes straight to the file browser,
+  /// since image_picker doesn't meaningfully support those platforms.
   Future<void> _insertImage() async {
     if (_isEncrypted) {
       // uploadNoteAttachment's multipart Note.set correlates the upload to a
@@ -507,13 +513,82 @@ class _NoteEditorContentState extends ConsumerState<_NoteEditorContent> {
           context, 'Inserting images into an encrypted note isn\'t supported.');
       return;
     }
-    final picked = await FilePicker.platform
-        .pickFiles(type: FileType.image, withData: true);
-    final file = picked?.files.single;
-    if (file == null || file.bytes == null) return;
 
-    final fileName = file.name;
-    final bytes = file.bytes!;
+    if (!Platform.isIOS && !Platform.isAndroid) {
+      await _insertImageFromFilePicker();
+      return;
+    }
+
+    final choice = await showModalBottomSheet<_ImageSourceChoice>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Camera'),
+              onTap: () =>
+                  Navigator.pop(sheetContext, _ImageSourceChoice.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Photo Library'),
+              onTap: () =>
+                  Navigator.pop(sheetContext, _ImageSourceChoice.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_outlined),
+              title: const Text('Files'),
+              onTap: () =>
+                  Navigator.pop(sheetContext, _ImageSourceChoice.files),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+
+    if (choice == _ImageSourceChoice.files) {
+      await _insertImageFromFilePicker();
+      return;
+    }
+    try {
+      final xfile = await ImagePicker().pickImage(
+        source: choice == _ImageSourceChoice.camera
+            ? ImageSource.camera
+            : ImageSource.gallery,
+      );
+      if (xfile == null) return;
+      await _insertPickedImage(xfile.name, await xfile.readAsBytes());
+    } catch (e) {
+      debugPrint('Image picker failed: $e');
+      if (mounted) AppToast.error(context, 'Could not access that image.');
+    }
+  }
+
+  Future<void> _insertImageFromFilePicker() async {
+    try {
+      final picked = await FilePicker.platform
+          .pickFiles(type: FileType.image, withData: true);
+      final file = picked?.files.single;
+      if (file == null || file.bytes == null) return;
+      await _insertPickedImage(file.name, file.bytes!);
+    } catch (e) {
+      // A silent failure here (e.g. a sandboxed desktop build missing the
+      // user-selected-file entitlement) previously looked indistinguishable
+      // from the picker just not opening at all — surface it instead.
+      debugPrint('File picker failed: $e');
+      if (mounted) AppToast.error(context, 'Could not open the file picker.');
+    }
+  }
+
+  /// Inserts an optimistic live-preview of [bytes] (named [fileName]) into
+  /// the rich editor immediately, and stashes them for _saveNote to
+  /// actually upload — mirrors how every other toolbar action here only
+  /// takes effect on Save (see NoteStationService.uploadNoteAttachment's
+  /// doc comment for why upload can't just happen right away). Shared by
+  /// every picker path (camera, photo library, file browser).
+  Future<void> _insertPickedImage(String fileName, List<int> bytes) async {
     // Matches the capture's own pattern (base64 of epoch-ms + filename) — a
     // simple, collision-resistant id; it doesn't need to match Synology's
     // own generation algorithm exactly, just be unique per upload.

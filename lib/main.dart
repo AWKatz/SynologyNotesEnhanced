@@ -6,6 +6,7 @@ import 'models/synology_session.dart';
 import 'providers/session_provider.dart';
 import 'providers/app_mode_provider.dart';
 import 'core/services/session_persistence_service.dart';
+import 'core/services/notification_service.dart';
 
 /// Trusts self-signed/hostname-mismatched certs for Dart's built-in
 /// NetworkImage/HttpClient usage — same rationale as
@@ -44,6 +45,15 @@ void main() async {
     }
   } catch (e, st) {
     debugPrint('[startup] session restore threw: $e\n$st');
+  }
+
+  try {
+    await NotificationService.instance.initialize();
+  } catch (e, st) {
+    // Reminders/badges are a nice-to-have, not core app functionality --
+    // a plugin init failure (missing platform support, permission plumbing
+    // issue, etc.) shouldn't block the app from starting.
+    debugPrint('[startup] NotificationService.initialize threw: $e\n$st');
   }
 
   runApp(

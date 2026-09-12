@@ -6,6 +6,15 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- Required for a sandboxed app to actually read/write a file the user
+	     picked via NSOpenPanel/NSSavePanel (file_picker's macOS backend) —
+	     without this, the panel can still appear (macOS's Powerbox mediates
+	     it out-of-process) but the app isn't entitled to use the resulting
+	     access grant, so reading the picked file's bytes (image insertion,
+	     .nsx import) or writing to a chosen save location (.nsx export)
+	     silently fails. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>

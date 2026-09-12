@@ -5,6 +5,15 @@
          merged into release builds — without this, a release APK/AAB would have no
          network access at all. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- To-do due-date reminders (flutter_local_notifications). The plugin
+         itself declares POST_NOTIFICATIONS/VIBRATE in its own manifest,
+         merged in automatically — these are the ones that aren't. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <!-- Camera capture when inserting an image into a note (image_picker).
+         Gallery selection needs no permission — it goes through the system
+         Photo Picker, which doesn't grant this app broad storage access. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
         android:label="Synology Notes Enhanced"
         android:name="${applicationName}"
@@ -36,6 +45,20 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- flutter_local_notifications: fires a scheduled reminder when its
+             alarm goes off, and re-arms every pending one after a reboot
+             (AlarmManager entries don't survive a reboot on their own). -->
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

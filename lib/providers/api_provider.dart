@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/api/synology_api_client.dart';
+import '../core/services/file_station_service.dart';
 import '../core/services/note_station_service.dart';
 import 'session_provider.dart';
 
@@ -17,6 +18,13 @@ final noteStationServiceProvider = Provider<NoteStationService?>((ref) {
   final client = ref.watch(apiClientProvider);
   if (client == null) return null;
   return NoteStationService(client);
+});
+
+/// Provides the [FileStationService], or null when not logged in.
+final fileStationServiceProvider = Provider<FileStationService?>((ref) {
+  final client = ref.watch(apiClientProvider);
+  if (client == null) return null;
+  return FileStationService(client);
 });
 
 /// The short-lived download ticket (`tid`) inline note images need (see
