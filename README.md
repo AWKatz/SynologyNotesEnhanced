@@ -1,5 +1,8 @@
 # Synology Notes Enhanced
-<img width="951" height="618" alt="Screenshot 2026-07-31 182826" src="https://github.com/user-attachments/assets/243881f8-6acd-4ab5-b99c-162f545e71b7" />
+<img width="1219" height="897" alt="Screenshot 2026-11-11 at 12 43 54 PM" src="https://github.com/user-attachments/assets/abf47745-bff7-4f7b-9427-1da2a6f26fae" />
+<img width="1219" height="897" alt="Screenshot 2026-11-11 at 12 45 05 PM" src="https://github.com/user-attachments/assets/1702719c-8227-4703-8525-0bfd52728b8f" />
+<img width="1219" height="897" alt="Screenshot 2026-11-11 at 12 46 13 PM" src="https://github.com/user-attachments/assets/935f81b2-d5df-46b6-9363-c99685984a5d" />
+
 
 A feature-rich, open-source alternative to Synology's **DS Notes** client for
 [Note Station](https://www.synology.com/en-global/dsm/feature/note_station) — built with
