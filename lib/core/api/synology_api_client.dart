@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show HandshakeException, SocketException;
 import 'package:http/http.dart' as http;
 import 'api_exception.dart';
 import 'trusted_http_client.dart';
@@ -14,8 +15,22 @@ class ExplicitNull {
 
 const explicitNull = ExplicitNull();
 
+/// Fresh credentials handed back by a [ReauthHandler].
+typedef SessionTokens = ({String sid, String? synoToken});
+
+/// Called when the NAS reports the session is gone (DSM 106/119, or a 105
+/// that a session probe confirms is really an invalid SID). Receives the SID
+/// the failing request used, so a handler can tell "already refreshed by a
+/// concurrent request" apart from "still stale". Returns null when it can't
+/// sign in again (no saved password, wrong password, offline...).
+typedef ReauthHandler = Future<SessionTokens?> Function(String? staleSid);
+
 /// Low-level HTTP client for the Synology WebAPI.
 /// All calls go to /webapi/entry.cgi via POST.
+///
+/// A client can be given several base URLs for the same NAS (e.g. its LAN IP
+/// and its DDNS name). Requests go to whichever one last worked; if that one
+/// can't be connected to, the others are tried in order.
 class SynologyApiClient {
   // Core DSM APIs (SYNO.API.*) are registered at the root webapi dispatcher.
   static const _coreEntry = '/webapi/entry.cgi';
@@ -23,22 +38,64 @@ class SynologyApiClient {
   // (verified from the stock client's requests); they 404/error at _coreEntry.
   static const _noteStationEntry = '/notestation/webapi/entry.cgi';
 
-  final String baseUrl;
+  /// DSM codes meaning "this SID is no longer valid": 106 = session timed
+  /// out, 119 = SID not found (also what DSM returns once a SID bound to one
+  /// client IP is used from another — e.g. after moving from Wi-Fi to cellular).
+  static const _sessionErrorCodes = {106, 119};
+
+  /// The base URL that most recently answered, shared across every client
+  /// instance so a freshly built client (after login, app resume, provider
+  /// rebuild) doesn't first wait out a timeout on an address that just failed.
+  static String? lastReachableBaseUrl;
+
+  final List<String> _baseUrls;
   String? _sid;
   String? _synoToken;
+  String? _deviceId;
   final http.Client _http;
 
-  SynologyApiClient(this.baseUrl, {http.Client? httpClient})
-      : _http = httpClient ?? createTrustingClient();
+  /// See [ReauthHandler]. Null → session errors surface to the caller as-is.
+  ReauthHandler? onSessionExpired;
 
-  SynologyApiClient.withSid(this.baseUrl, String sid,
-      {String? synoToken, http.Client? httpClient})
-      : _sid = sid,
+  SynologyApiClient(String baseUrl,
+      {List<String> fallbackBaseUrls = const [], http.Client? httpClient})
+      : _baseUrls = _dedupe([baseUrl, ...fallbackBaseUrls]),
+        _http = httpClient ?? createTrustingClient();
+
+  SynologyApiClient.withSid(String baseUrl, String sid,
+      {String? synoToken,
+      List<String> fallbackBaseUrls = const [],
+      http.Client? httpClient,
+      this.onSessionExpired})
+      : _baseUrls = _dedupe([baseUrl, ...fallbackBaseUrls]),
+        _sid = sid,
         _synoToken = synoToken,
         // Must trust self-signed / IP-mismatched DSM certs, same as the default
         // constructor — otherwise every authenticated call fails the TLS
         // handshake while login (which uses createTrustingClient) succeeds.
         _http = httpClient ?? createTrustingClient();
+
+  static List<String> _dedupe(List<String> urls) {
+    final seen = <String>{};
+    return [
+      for (final u in urls)
+        if (u.isNotEmpty && seen.add(_trimSlash(u))) _trimSlash(u)
+    ];
+  }
+
+  static String _trimSlash(String u) =>
+      u.endsWith('/') ? u.substring(0, u.length - 1) : u;
+
+  /// Every base URL this client may use, in configured order.
+  List<String> get baseUrls => List.unmodifiable(_baseUrls);
+
+  /// The base URL requests currently go to first.
+  String get baseUrl => _baseUrls[_startIndex];
+
+  int get _startIndex {
+    final i = _baseUrls.indexOf(lastReachableBaseUrl ?? '');
+    return i < 0 ? 0 : i;
+  }
 
   String? get sid => _sid;
 
@@ -47,6 +104,18 @@ class SynologyApiClient {
   /// `SynoToken` query param. May be null on DSM configs that don't issue one.
   String? get synoToken => _synoToken;
 
+  /// "Trusted device" token DSM returns when [login] is called with
+  /// `rememberDevice: true`. Passing it back on later logins lets an account
+  /// with 2FA sign in again without a fresh OTP code.
+  String? get deviceId => _deviceId;
+
+  /// Replaces the session credentials in place (e.g. after a re-login done
+  /// elsewhere), so services holding this client keep working.
+  void updateSession({required String sid, String? synoToken}) {
+    _sid = sid;
+    _synoToken = synoToken;
+  }
+
   /// Authenticates and stores the returned SID internally.
   /// Returns the SID on success, throws [ApiException] on failure.
   Future<String> login({
@@ -54,6 +123,9 @@ class SynologyApiClient {
     required String passwd,
     String session = 'NoteStation',
     String? otpCode,
+    String? deviceId,
+    bool rememberDevice = false,
+    String deviceName = 'Synology Notes Enhanced',
   }) async {
     final data = await _call(
       api: 'SYNO.API.Auth',
@@ -68,11 +140,18 @@ class SynologyApiClient {
         // client sends this and gets back `synotoken`). Required for writes.
         'enable_syno_token': 'yes',
         if (otpCode != null && otpCode.isNotEmpty) 'otp_code': otpCode,
+        if (rememberDevice) ...{
+          'enable_device_token': 'yes',
+          'device_name': deviceName,
+        },
+        if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
       },
       includeAuth: false,
     ) as Map<String, dynamic>;
     _sid = data['sid'] as String;
     _synoToken = data['synotoken'] as String?;
+    final did = data['did'] as String?;
+    _deviceId = (did != null && did.isNotEmpty) ? did : deviceId;
     return _sid!;
   }
 
@@ -97,6 +176,7 @@ class SynologyApiClient {
       version: 7,
       method: 'logout',
       params: {'session': session},
+      allowReauth: false,
     );
     _sid = null;
     _synoToken = null;
@@ -156,13 +236,15 @@ class SynologyApiClient {
   /// instead (proven to work: this is the same client every other
   /// authenticated call already succeeds through) and embedding the result
   /// as a data: URI sidesteps the WebView's networking entirely.
+  ///
+  /// If [uri] points at one of this client's base URLs, it's re-targeted at
+  /// the others on connection failure like every other request.
   Future<List<int>> fetchBytes(Uri uri) async {
-    final http.Response response;
-    try {
-      response = await _http.get(uri);
-    } catch (e) {
-      throw ApiException(code: -1, message: 'Network error: $e');
-    }
+    final ownOrigin = _baseUrls.any((b) => _sameOrigin(Uri.parse(b), uri));
+    final response = await _send(
+      (base) => http.Request('GET', ownOrigin ? _rebase(uri, base) : uri),
+      failover: ownOrigin,
+    );
     if (response.statusCode != 200) {
       throw ApiException(
           code: response.statusCode, message: 'HTTP ${response.statusCode}');
@@ -270,26 +352,23 @@ class SynologyApiClient {
     required List<int> fileBytes,
     required String fileName,
   }) async {
-    final request =
-        http.MultipartRequest('POST', Uri.parse('$baseUrl$_coreEntry'));
-    request.fields['api'] = api;
-    request.fields['version'] = version.toString();
-    request.fields['method'] = method;
-    if (_sid != null) request.fields['_sid'] = _sid!;
-    if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
-    request.fields.addAll(_encodeCoreParams(fields));
-    request.files.add(http.MultipartFile.fromBytes(fileFieldName, fileBytes,
-        filename: fileName));
-
-    final http.Response response;
-    try {
-      final streamed = await _http.send(request);
-      response = await http.Response.fromStream(streamed);
-    } catch (e) {
-      throw ApiException(code: -1, message: 'Network error: $e');
+    // Built per attempt: a MultipartRequest can only be sent once, and the
+    // SID may have been refreshed between attempts.
+    http.BaseRequest build(String base) {
+      final request =
+          http.MultipartRequest('POST', Uri.parse('$base$_coreEntry'));
+      request.fields['api'] = api;
+      request.fields['version'] = version.toString();
+      request.fields['method'] = method;
+      if (_sid != null) request.fields['_sid'] = _sid!;
+      if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
+      request.fields.addAll(_encodeCoreParams(fields));
+      request.files.add(http.MultipartFile.fromBytes(fileFieldName, fileBytes,
+          filename: fileName));
+      return request;
     }
 
-    final data = _parseResponse(response);
+    final data = await _sendAndParse(build, authenticated: true);
     if (data == null) return {};
     return data as Map<String, dynamic>;
   }
@@ -323,29 +402,24 @@ class SynologyApiClient {
     required List<int> fileBytes,
     required String fileName,
   }) async {
-    final uri = Uri.parse('$baseUrl$_noteStationEntry').replace(
-      queryParameters: {
-        'api': api,
-        'version': version.toString(),
-        'method': method,
-      },
-    );
-    final request = http.MultipartRequest('POST', uri);
-    if (_sid != null) request.fields['_sid'] = _sid!;
-    if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
-    request.fields.addAll(_encodeParams(fields));
-    request.files.add(http.MultipartFile.fromBytes(fileFieldName, fileBytes,
-        filename: fileName));
-
-    final http.Response response;
-    try {
-      final streamed = await _http.send(request);
-      response = await http.Response.fromStream(streamed);
-    } catch (e) {
-      throw ApiException(code: -1, message: 'Network error: $e');
+    http.BaseRequest build(String base) {
+      final uri = Uri.parse('$base$_noteStationEntry').replace(
+        queryParameters: {
+          'api': api,
+          'version': version.toString(),
+          'method': method,
+        },
+      );
+      final request = http.MultipartRequest('POST', uri);
+      if (_sid != null) request.fields['_sid'] = _sid!;
+      if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
+      request.fields.addAll(_encodeParams(fields));
+      request.files.add(http.MultipartFile.fromBytes(fileFieldName, fileBytes,
+          filename: fileName));
+      return request;
     }
 
-    final data = _parseResponse(response);
+    final data = await _sendAndParse(build, authenticated: true);
     if (data == null) return {};
     return data as Map<String, dynamic>;
   }
@@ -402,36 +476,163 @@ class SynologyApiClient {
     required String method,
     Map<String, String>? params,
     bool includeAuth = true,
+    bool allowReauth = true,
     String entryPath = _coreEntry,
+  }) {
+    // Built per attempt so a retry after re-login picks up the new SID.
+    http.BaseRequest build(String base) {
+      final body = <String, String>{
+        'api': api,
+        'version': version.toString(),
+        'method': method,
+        ...?params,
+      };
+      final request = http.Request('POST', Uri.parse('$base$entryPath'));
+      request.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+      if (includeAuth && _sid != null) {
+        body['_sid'] = _sid!;
+        // CSRF protection: the web client sends the token as a header on every
+        // authenticated POST. Without it, writes can 403 on some DSM configs.
+        if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
+      }
+      request.bodyFields = body;
+      return request;
+    }
+
+    return _sendAndParse(build, authenticated: includeAuth && allowReauth);
+  }
+
+  /// Sends a request built by [build], parses the DSM envelope, and — for
+  /// [authenticated] requests — signs in again and retries once if the NAS
+  /// says the session is gone.
+  Future<dynamic> _sendAndParse(
+    http.BaseRequest Function(String base) build, {
+    required bool authenticated,
   }) async {
-    final body = <String, String>{
-      'api': api,
-      'version': version.toString(),
-      'method': method,
-      ...?params,
-    };
-
-    final headers = {'Content-Type': 'application/x-www-form-urlencoded'};
-
-    if (includeAuth && _sid != null) {
-      body['_sid'] = _sid!;
-      // CSRF protection: the web client sends the token as a header on every
-      // authenticated POST. Without it, writes can 403 on some DSM configs.
-      if (_synoToken != null) headers['X-SYNO-TOKEN'] = _synoToken!;
-    }
-
-    final http.Response response;
+    final response = await _send(build);
     try {
-      response = await _http.post(
-        Uri.parse('$baseUrl$entryPath'),
-        headers: headers,
-        body: body,
-      );
-    } catch (e) {
-      throw ApiException(code: -1, message: 'Network error: $e');
+      return _parseResponse(response);
+    } on ApiException catch (e) {
+      if (!authenticated || !await _isSessionExpired(e)) rethrow;
+      if (!await _reauthenticate()) rethrow;
     }
+    return _parseResponse(await _send(build));
+  }
 
-    return _parseResponse(response);
+  /// Whether [e] means the SID is invalid. NoteStation's own APIs answer an
+  /// invalid SID with a generic 105 "permission denied" (verified against a
+  /// live NAS with a bogus `_sid`: `Notebook.list` → 105, `Info.get` → 119),
+  /// which is indistinguishable from a real permission error — so for 105,
+  /// probe the session with `NoteStation.Info` (cheap, always permitted) and
+  /// only treat it as expired if that probe reports 106/119.
+  Future<bool> _isSessionExpired(ApiException e) async {
+    if (onSessionExpired == null || _sid == null) return false;
+    if (_sessionErrorCodes.contains(e.code)) return true;
+    if (e.code != 105) return false;
+    try {
+      final probe = await _send((base) {
+        final request =
+            http.Request('POST', Uri.parse('$base$_noteStationEntry'));
+        if (_synoToken != null) request.headers['X-SYNO-TOKEN'] = _synoToken!;
+        request.bodyFields = {
+          'api': 'SYNO.NoteStation.Info',
+          'version': '2',
+          'method': 'get',
+          '_sid': _sid!,
+        };
+        return request;
+      });
+      _parseResponse(probe);
+      return false; // session is fine — the 105 was a genuine denial
+    } on ApiException catch (probeError) {
+      return _sessionErrorCodes.contains(probeError.code);
+    }
+  }
+
+  Future<bool> _reauthenticate() async {
+    final handler = onSessionExpired;
+    if (handler == null) return false;
+    final SessionTokens? fresh;
+    try {
+      fresh = await handler(_sid);
+    } catch (_) {
+      return false;
+    }
+    if (fresh == null) return false;
+    _sid = fresh.sid;
+    _synoToken = fresh.synoToken;
+    return true;
+  }
+
+  /// Sends a request built by [build] against this client's base URLs,
+  /// starting with the one that last answered. Moves on to the next base URL
+  /// only when the connection itself couldn't be made (see
+  /// [_isConnectFailure]) — nothing reached the NAS, so retrying elsewhere
+  /// can't double-apply a write.
+  Future<http.Response> _send(
+    http.BaseRequest Function(String base) build, {
+    bool failover = true,
+  }) async {
+    final start = _startIndex;
+    final attempts = failover ? _baseUrls.length : 1;
+    Object? lastError;
+    for (var i = 0; i < attempts; i++) {
+      final base = _baseUrls[(start + i) % _baseUrls.length];
+      try {
+        final streamed = await _http.send(build(base));
+        final response = await http.Response.fromStream(streamed);
+        lastReachableBaseUrl = base;
+        return response;
+      } catch (e) {
+        lastError = e;
+        if (!_isConnectFailure(e)) break;
+      }
+    }
+    final tried = _baseUrls.take(attempts).join(', ');
+    throw ApiException(
+        code: -1, message: 'Network error ($tried): $lastError');
+  }
+
+  /// True for failures that happen before any request bytes reach the NAS:
+  /// DNS failure, refused/unreachable, connect timeout, TLS handshake.
+  static bool _isConnectFailure(Object e) {
+    if (e is HandshakeException) return true;
+    if (e is! SocketException) return false;
+    final msg = e.message.toLowerCase();
+    if (msg.contains('timed out') ||
+        msg.contains('failed host lookup') ||
+        msg.contains('connection refused') ||
+        msg.contains('unreachable') ||
+        msg.contains('no route to host')) {
+      return true;
+    }
+    final osMsg = e.osError?.message.toLowerCase() ?? '';
+    if (osMsg.contains('timed out') ||
+        osMsg.contains('refused') ||
+        osMsg.contains('unreachable') ||
+        osMsg.contains('no route') ||
+        osMsg.contains('host is down') ||
+        osMsg.contains('nodename nor servname') ||
+        osMsg.contains('name or service not known')) {
+      return true;
+    }
+    const connectErrnos = {
+      // Darwin/iOS: ENETUNREACH, ETIMEDOUT, ECONNREFUSED, EHOSTDOWN, EHOSTUNREACH
+      51, 60, 61, 64, 65,
+      // Linux/Android: ENETUNREACH, ETIMEDOUT, ECONNREFUSED, EHOSTDOWN, EHOSTUNREACH
+      101, 110, 111, 112, 113,
+      // Windows: WSAENETUNREACH, WSAETIMEDOUT, WSAECONNREFUSED, WSAEHOSTDOWN, WSAEHOSTUNREACH
+      10051, 10060, 10061, 10064, 10065,
+    };
+    return connectErrnos.contains(e.osError?.errorCode);
+  }
+
+  static bool _sameOrigin(Uri a, Uri b) =>
+      a.scheme == b.scheme && a.host == b.host && a.port == b.port;
+
+  static Uri _rebase(Uri uri, String base) {
+    final b = Uri.parse(base);
+    return uri.replace(scheme: b.scheme, host: b.host, port: b.port);
   }
 
   /// Shared response handling for [_call] and [callMultipart]: HTTP status,

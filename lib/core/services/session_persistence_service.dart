@@ -8,6 +8,7 @@ class SavedCredentials {
   final bool useHttps;
   final String username;
   final String password;
+  final String? alternateBaseUrl;
 
   const SavedCredentials({
     required this.host,
@@ -15,6 +16,7 @@ class SavedCredentials {
     required this.useHttps,
     required this.username,
     required this.password,
+    this.alternateBaseUrl,
   });
 }
 
@@ -32,6 +34,15 @@ class SessionPersistenceService {
   static const _keyMode = 'app_mode';
   static const _keyPassword = 'nas_password';
   static const _keyRememberMe = 'nas_remember_me';
+  static const _keyAltUrl = 'nas_alt_url';
+  // Survives logout on purpose: it's what lets a 2FA account sign in again
+  // without an OTP code (see SynologySession.deviceId).
+  static const _keyDeviceId = 'nas_device_id';
+
+  static Future<String?> _readNonEmpty(String key) async {
+    final v = await _storage.read(key: key);
+    return (v == null || v.isEmpty) ? null : v;
+  }
 
   // Writes are sequential, not `Future.wait`-parallel: the Windows backend
   // (DPAPI/file-based) races when hit with concurrent writes and silently
@@ -60,6 +71,8 @@ class SessionPersistenceService {
         _keyUsername: session.username,
         _keySid: session.sid,
         _keySynoToken: session.synoToken ?? '',
+        _keyAltUrl: session.alternateBaseUrl ?? '',
+        if (session.deviceId != null) _keyDeviceId: session.deviceId!,
         _keyMode: 'nas',
       });
       // Read the SID straight back to confirm the write actually landed —
@@ -82,6 +95,7 @@ class SessionPersistenceService {
       _keyHttps: creds.useHttps.toString(),
       _keyUsername: creds.username,
       _keyPassword: creds.password,
+      _keyAltUrl: creds.alternateBaseUrl ?? '',
       _keyRememberMe: 'true',
     });
   }
@@ -90,6 +104,10 @@ class SessionPersistenceService {
   static Future<void> clearSavedCredentials() async {
     await _deleteKeys([_keyPassword, _keyRememberMe]);
   }
+
+  /// Trusted-device token from the last 2FA login, if any (kept across
+  /// logouts so the next sign-in can skip the OTP prompt).
+  static Future<String?> restoreDeviceId() => _readNonEmpty(_keyDeviceId);
 
   static Future<SavedCredentials?> restoreCredentials() async {
     final remember = await _storage.read(key: _keyRememberMe);
@@ -102,6 +120,7 @@ class SessionPersistenceService {
       useHttps: (await _storage.read(key: _keyHttps)) == 'true',
       username: await _storage.read(key: _keyUsername) ?? '',
       password: await _storage.read(key: _keyPassword) ?? '',
+      alternateBaseUrl: await _readNonEmpty(_keyAltUrl),
     );
   }
 
@@ -124,6 +143,8 @@ class SessionPersistenceService {
       username: await _storage.read(key: _keyUsername) ?? '',
       sid: sid,
       synoToken: (token == null || token.isEmpty) ? null : token,
+      alternateBaseUrl: await _readNonEmpty(_keyAltUrl),
+      deviceId: await _readNonEmpty(_keyDeviceId),
     );
   }
 

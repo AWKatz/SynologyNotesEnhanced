@@ -1738,64 +1738,6 @@ class _EditorMeta extends ConsumerWidget {
                           ),
                         ),
                 ),
-                // Transient — shown briefly while entering edit mode on a note
-                // with images (see _toggleEdit's image-resolution branch). Kept
-                // outside the More menu since it's a loading state, not an option.
-                if (canEdit && preparingEdit)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                // This slot always holds the one primary action for the current
-                // mode — Edit while just viewing, then Save/Done while editing
-                // (Save once something's actually changed, Done otherwise, so
-                // tapping it always does something sensible instead of Save
-                // silently no-op'ing on a clean note) — anchored at the far right
-                // with only the More menu beside it. Everything else (tags,
-                // favorite, color, encrypt, move) lives in that menu instead of
-                // competing for space in this row.
-                if (editing)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: OutlinedButton.icon(
-                      onPressed: isDirty ? onSave : onToggleEdit,
-                      icon: const Icon(Icons.check_rounded, size: 16),
-                      label: Text(isDirty ? 'Save' : 'Done'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: cs.primary,
-                        side: BorderSide(color: cs.primary),
-                        shape: const StadiumBorder(),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        minimumSize: const Size(0, 28),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  )
-                else if (canEdit)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: OutlinedButton.icon(
-                      onPressed: onToggleEdit,
-                      icon: const Icon(Icons.edit_rounded, size: 16),
-                      label: const Text('Edit'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: cs.primary,
-                        side: BorderSide(color: cs.primary),
-                        shape: const StadiumBorder(),
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        minimumSize: const Size(0, 28),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        textStyle: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
                 PopupMenuButton<String>(
                   tooltip: 'More',
                   icon: Icon(Icons.more_vert_rounded,
@@ -1804,7 +1746,7 @@ class _EditorMeta extends ConsumerWidget {
                   padding: const EdgeInsets.all(4),
                   itemBuilder: (context) => [
                     // Edit/Save/Done all live in the dedicated primary-action slot
-                    // this menu sits beside — nothing to duplicate here for either.
+                    // to the right of this menu — nothing to duplicate here.
                     const PopupMenuItem(
                       value: 'tags',
                       child: ListTile(
@@ -1934,6 +1876,64 @@ class _EditorMeta extends ConsumerWidget {
                     }
                   },
                 ),
+                // Transient — shown briefly while entering edit mode on a note
+                // with images (see _toggleEdit's image-resolution branch). Sits right
+                // beside the Edit button it belongs to.
+                if (canEdit && preparingEdit)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                // This slot always holds the one primary action for the current
+                // mode — Edit while just viewing, then Save/Done while editing
+                // (Save once something's actually changed, Done otherwise, so
+                // tapping it always does something sensible instead of Save
+                // silently no-op'ing on a clean note) — anchored at the far
+                // right, after the More menu, where a primary action naturally
+                // sits. Everything else (tags, favorite, color, encrypt, move)
+                // lives in that menu instead of competing for space in this row.
+                if (editing)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: OutlinedButton.icon(
+                      onPressed: isDirty ? onSave : onToggleEdit,
+                      icon: const Icon(Icons.check_rounded, size: 16),
+                      label: Text(isDirty ? 'Save' : 'Done'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: cs.primary,
+                        side: BorderSide(color: cs.primary),
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  )
+                else if (canEdit)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: OutlinedButton.icon(
+                      onPressed: onToggleEdit,
+                      icon: const Icon(Icons.edit_rounded, size: 16),
+                      label: const Text('Edit'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: cs.primary,
+                        side: BorderSide(color: cs.primary),
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        minimumSize: const Size(0, 28),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

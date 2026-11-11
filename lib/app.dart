@@ -57,21 +57,28 @@ Widget _slideFromLeft(
 }
 
 // Constrains [child] to a left-anchored panel. When [dismissible] is true,
-// tapping the transparent right area pops the current route.
+// tapping the transparent right area pops the current route. With
+// [fullWidthOnPhone], the panel takes the whole screen on phone-width
+// layouts instead of leaving a sliver of the page behind it visible.
 class _PanelPage extends StatelessWidget {
   final Widget child;
   final bool dismissible;
   final double maxWidth;
+  final bool fullWidthOnPhone;
 
   const _PanelPage({
     required this.child,
     this.dismissible = false,
     this.maxWidth = 380.0,
+    this.fullWidthOnPhone = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final width = min(maxWidth, MediaQuery.sizeOf(context).width * 0.92);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final width = (fullWidthOnPhone && screenWidth < 600)
+        ? screenWidth
+        : min(maxWidth, screenWidth * 0.92);
 
     return Stack(
       children: [
@@ -126,7 +133,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           opaque: false,
           barrierColor: Colors.black54,
           barrierDismissible: false,
-          child: const _PanelPage(child: LoginScreen()),
+          child: const _PanelPage(fullWidthOnPhone: true, child: LoginScreen()),
           transitionsBuilder: _slideFromLeft,
         ),
       ),

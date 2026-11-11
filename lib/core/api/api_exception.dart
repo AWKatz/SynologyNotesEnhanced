@@ -18,6 +18,7 @@ class ApiException implements Exception {
       case 105: return 'Permission denied';
       case 106: return 'Session timed out';
       case 107: return 'Session interrupted — duplicate login detected';
+      case 119: return 'Session expired — please sign in again';
       // Auth errors
       case 400: return 'Invalid account or password';
       case 401: return 'Account disabled';
