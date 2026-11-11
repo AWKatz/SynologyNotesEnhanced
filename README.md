@@ -5,6 +5,11 @@ A feature-rich, open-source alternative to Synology's **DS Notes** client for
 [Note Station](https://www.synology.com/en-global/dsm/feature/note_station) — built with
 Flutter and running on **Android, iOS, Windows, macOS, and Linux**.
 
+> ✅ **Status: near 1:1 feature parity** with Synology's own Note Station clients (the DSM
+> web app and DS Notes). Notebooks, notes, rich text, tags, to-dos, smart notebooks, trash,
+> version history, sharing, encryption, and `.nsx` import/export all work against a live
+> NAS. Only two features are still missing; see [Parity status](#parity-status).
+
 The goal is twofold:
 
 1. **A better Note Station client.** DS Notes is functional but limited and no longer
@@ -26,7 +31,8 @@ The goal is twofold:
 - **Rich-text notes** — renders Note Station's HTML content, with in-app WebView editing for
   notes that use a confirmed-safe formatting subset (fidelity-first: anything outside it stays
   read-only rather than risk silently stripping formatting on save — see `rich_html_schema.dart`).
-- **To-do lists** — create, check off, set due dates and priority.
+- **To-do lists** — create, check off, set due dates and priority, with local due-date
+  reminder notifications.
 - **Smart notebooks** — saved-search notebooks with criteria-based matching.
 - **Trash** — move notes to trash, restore, or permanently purge.
 - **Version history** — browse and restore a note's prior saved versions.
@@ -36,10 +42,12 @@ The goal is twofold:
 - **`.nsx` import/export** — both a local ZIP codec (works fully offline) and the NAS's own
   server-side export/import job.
 - **Offline / local mode** — work with local notes without a NAS connection.
-- **Session persistence** — credentials stored via the platform secure store.
-
-Working toward full parity with the stock DS Note client — see the API coverage table below
-for exactly what's implemented versus still open, kept up to date as features land.
+- **Reliable connections at home and away** — set a LAN address plus an optional remote
+  address (e.g. your DDNS name), and the app switches to whichever one is reachable. When
+  DSM ends the session (timeout, restart, or a network change), the app signs in again in the
+  background and retries, so syncing carries on.
+- **Session persistence** — credentials stored via the platform secure store; 2FA accounts
+  can mark the device as trusted so a background sign-in doesn't need a new code.
 
 ## NoteStation API coverage
 
@@ -49,7 +57,7 @@ and wired into the app, not just verified by capture):
 
 | Area | What works |
 |---|---|
-| Auth | Login/logout, 2FA (OTP) type discovery |
+| Auth | Login/logout, 2FA (OTP) with trusted-device tokens, automatic background sign-in on an expired session, LAN ↔ remote address failover |
 | Shelves | List |
 | Notebooks | List, create, rename, delete |
 | Notes | List, get, create, edit, move to trash, restore, permanently purge, full-text search |
@@ -57,20 +65,27 @@ and wired into the app, not just verified by capture):
 | Attachments/images | Upload (embedded in a note save) and download/render inline |
 | Encryption | Client-side AES-256-CBC password-protect / unlock, fully local — DSM never sees a plaintext password or content |
 | Tags | List, create |
-| To-do lists | List, create, edit, delete, due dates, priority |
+| To-do lists | List, create, edit, delete, due dates, priority, local due-date reminders |
 | Smart notebooks | List, create, criteria-based note matching |
 | Version history | List a note's versions, restore a prior version |
 | Sharing & permissions | Public share link, per-user/per-group permission grants |
 | `.nsx` | Import and export, both a local ZIP codec (no server round-trip) and the NAS's own server-side export/import job |
 
-Not yet implemented: **DSM-side import of non-`.nsx` formats** (the server-side import job
-only handles `.nsx`; other formats DSM's own client may support, e.g. Evernote, aren't wired
-up), **audio note attachments** (the attachment picker is image-only; DS Note supports
-recording/attaching audio), and **to-do due-date reminders/notifications** (due dates are
-stored and shown, but nothing schedules a local or push reminder). Verified via live capture
-but deliberately **not** used by the app: batch startup sync (`SYNO.Entry.Request` — the app
-makes its calls individually instead), DSM's own sidebar-shortcuts sync, and server-side
-view/sort preference sync (kept local instead, by design).
+### Parity status
+
+Everything in the table above matches the official clients. Two features are still missing:
+
+- **Audio note attachments.** The attachment picker only handles images; DS Notes can also
+  record and attach audio.
+- **Importing formats other than `.nsx`.** The server-side import job only handles `.nsx`;
+  other formats the official client may accept, such as Evernote exports, aren't wired up.
+
+One difference is by design: to-do reminders are local notifications that fire at a single
+time of day you choose, not Synology's server-pushed reminders.
+
+Verified via live capture but deliberately **not** used by the app: batch startup sync
+(`SYNO.Entry.Request` — the app makes its calls individually instead), DSM's own
+sidebar-shortcuts sync, and server-side view/sort preference sync (kept local instead).
 
 **[`.docs/NoteStation API documentation.md`](<.docs/NoteStation API documentation.md>)** is
 the complete, maintained reference behind the table above — every method/param/response
@@ -92,7 +107,10 @@ flutter run
 ```
 
 To connect, enter your NAS host/IP, port, and account in the login screen — or choose
-**local mode** to work offline. Requires the [Flutter SDK](https://docs.flutter.dev/get-started/install)
+**local mode** to work offline. To sync away from home as well, turn on **Remote address**
+and enter your NAS's internet-facing name (e.g. a `*.synology.me` DDNS name) with HTTPS on
+port 5001. Turn on **Save login** so the app can sign in again by itself when DSM ends the
+session. Requires the [Flutter SDK](https://docs.flutter.dev/get-started/install)
 (Dart `>=3.3.0`).
 
 ## Contributing
